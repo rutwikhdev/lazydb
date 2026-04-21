@@ -3,6 +3,7 @@ package main
 import (
 	"lazydb/internal/db"
 	"lazydb/internal/tui"
+
 	"log"
 	"os"
 	"strconv"
@@ -18,22 +19,23 @@ func main() {
 	}
 	tables := db.FetchTables()
 
-	columns := tui.Columns([]string{"ID", "Table Name"})
+	columns := tui.TransformColumns([]string{"ID", "Table Name"})
 	tableRows := [][]string{}
 
 	for i, tableName := range tables {
 		tableRows = append(tableRows, []string{strconv.Itoa(i + 1), tableName})
 	}
 
-	rows := tui.Rows(tableRows)
+	rows := tui.TransformRows(tableRows)
 
 	// returns a new table
 	t := tui.SetupNewTable(columns, rows)
 
 	// m := model{table: t}
-	m := tui.Model{Table: t}
+	var m *tui.Model
+	m = tui.NewModel(t)
 
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		println("Error:", err.Error())
 		os.Exit(1)
