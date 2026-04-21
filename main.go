@@ -1,21 +1,31 @@
 package main
 
 import (
+	"lazydb/internal/db"
 	"lazydb/internal/tui"
+	"log"
 	"os"
+	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	columns := tui.Columns([]string{"Name", "Language"})
+	// get these values from cli
+	db, err := db.NewDB("sqlite", "/home/pheonix/.jobdeck/jobs.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tables := db.FetchTables()
 
-	// TODO: fetch from query engine and send to list below
-	rows := tui.Rows([][]string{
-		{"1", "Alice", "Go"},
-		{"2", "Bob", "Python"},
-		{"3", "Charlie", "Rust"},
-	})
+	columns := tui.Columns([]string{"ID", "Table Name"})
+	tableRows := [][]string{}
+
+	for i, tableName := range tables {
+		tableRows = append(tableRows, []string{strconv.Itoa(i + 1), tableName})
+	}
+
+	rows := tui.Rows(tableRows)
 
 	// returns a new table
 	t := tui.SetupNewTable(columns, rows)
