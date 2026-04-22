@@ -83,7 +83,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
+			case "b", "esc":
+				m.pop()
+				return m, nil
 			}
+
 		}
 		m.RowTable, cmd = m.RowTable.Update(msg)
 		return m, cmd
@@ -111,13 +115,16 @@ func SetupNewTable(columns []table.Column, rows []table.Row) table.Model {
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
+		table.WithHeight(28),
 	)
 
 	// Styling
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		Foreground(lipgloss.Color("230")).
+		Background(lipgloss.Color("62")).
+		MarginBottom(1).
+		Underline(true).
 		Bold(true)
 
 	t.SetStyles(s)
@@ -129,7 +136,7 @@ func TransformColumns(columnNames []string) []table.Column {
 	columns := []table.Column{}
 
 	for _, name := range columnNames {
-		columns = append(columns, table.Column{Title: name, Width: 10})
+		columns = append(columns, table.Column{Title: name, Width: 12})
 	}
 
 	return columns
@@ -146,7 +153,7 @@ func TransformRows(rowData [][]string) []table.Row {
 }
 
 func makeRowTable(tableName string) table.Model {
-	db, err := db.NewDB("sqlite", "/home/pheonix/.jobdeck/jobs.db")
+	db, err := db.NewDB("sqlite", "/home/pheonix/chinook.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -160,13 +167,16 @@ func makeRowTable(tableName string) table.Model {
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
+		table.WithHeight(25),
 	)
 
 	// Styling
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		Foreground(lipgloss.Color("230")).
+		Background(lipgloss.Color("62")).
+		MarginBottom(1).
+		Underline(true).
 		Bold(true)
 
 	t.SetStyles(s)
