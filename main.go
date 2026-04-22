@@ -13,7 +13,7 @@ import (
 
 func main() {
 	// get these values from cli
-	db, err := db.NewDB("sqlite", "/home/pheonix/.jobdeck/jobs.db")
+	db, err := db.NewDB("sqlite", "/home/pheonix/chinook.db")
 	if err != nil {
 		log.Fatal(err)
 	}
