@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"lazydb/internal/db"
 	"log"
 
