@@ -37,6 +37,10 @@ type Model struct {
 	rowTable       table.Model
 	selectedDBType string
 	errMsg         string
+
+	rowTableCols   []string
+	rowTableRows   [][]string
+	hOffset        int
 }
 
 func NewModel() *Model {
@@ -100,6 +104,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
+		if m.currentScreen() == screenRows && len(m.rowTableCols) > 0 {
+			m.rebuildRowTable()
+		}
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -290,7 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				tableName := selected[1]
-				m.rowTable = makeRowTable(m.dbConn, tableName)
+				m.openRowTable(tableName)
 				m.push(screenRows)
 				return m, nil
 			}
@@ -306,6 +313,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "b":
 				m.pop()
+				return m, nil
+			case "h":
+				if m.hOffset > 0 {
+					m.hOffset--
+					m.rebuildRowTable()
+				}
+				return m, nil
+			case "l":
+				maxVisible := m.maxVisibleColumns()
+				if maxVisible < 1 {
+					maxVisible = 1
+				}
+				maxOffset := len(m.rowTableCols) - maxVisible
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if m.hOffset < maxOffset {
+					m.hOffset++
+					m.rebuildRowTable()
+				}
 				return m, nil
 			}
 		}
@@ -353,7 +380,7 @@ func (m Model) View() string {
 		case screenTables:
 			statusBar = "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 		case screenRows:
-			statusBar = "↑↓: navigate • Esc: back • q: quit"
+			statusBar = "↑↓: navigate • h/l: scroll left/right • Esc: back • q: quit"
 		}
 	}
 
@@ -446,14 +473,21 @@ func makeDatabaseTable(databases []string) table.Model {
 	return t
 }
 
-func makeRowTable(database *db.Database, tableName string) table.Model {
-	rawColumns := database.GetColumns(tableName)
-	columns := makeColumns(rawColumns)
-	rawRows, err := database.GetRows(tableName, rawColumns)
-	if err != nil {
-		rawRows = [][]string{}
+func (m *Model) openRowTable(tableName string) {
+	m.rowTableCols = m.dbConn.GetColumns(tableName)
+	m.rowTableRows, _ = m.dbConn.GetRows(tableName, m.rowTableCols)
+	m.hOffset = 0
+	m.rebuildRowTable()
+}
+
+func (m *Model) rebuildRowTable() {
+	if len(m.rowTableCols) == 0 {
+		return
 	}
-	rows := makeRows(rawRows)
+	cursor := m.rowTable.Cursor()
+	visibleCols, visibleRows := m.sliceVisible(m.rowTableCols, m.rowTableRows, m.hOffset)
+	columns := makeColumns(visibleCols)
+	rows := makeRows(visibleRows)
 
 	t := table.New(
 		table.WithColumns(columns),
@@ -469,7 +503,39 @@ func makeRowTable(database *db.Database, tableName string) table.Model {
 		Underline(true).
 		Bold(true)
 	t.SetStyles(s)
-	return t
+	if cursor < len(rows) {
+		t.SetCursor(cursor)
+	}
+	m.rowTable = t
+}
+
+func (m *Model) maxVisibleColumns() int {
+	return m.termWidth / 15
+}
+
+func (m *Model) sliceVisible(cols []string, rows [][]string, offset int) ([]string, [][]string) {
+	maxVisible := m.maxVisibleColumns()
+	if maxVisible < 1 {
+		maxVisible = 1
+	}
+	end := offset + maxVisible
+	if end > len(cols) {
+		end = len(cols)
+	}
+	visibleCols := cols[offset:end]
+	visibleRows := make([][]string, len(rows))
+	for i, row := range rows {
+		if offset < len(row) {
+			rowEnd := end
+			if rowEnd > len(row) {
+				rowEnd = len(row)
+			}
+			visibleRows[i] = row[offset:rowEnd]
+		} else {
+			visibleRows[i] = []string{}
+		}
+	}
+	return visibleCols, visibleRows
 }
 
 func makeColumns(columnNames []string) []table.Column {
