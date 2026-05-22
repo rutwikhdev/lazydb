@@ -23,9 +23,9 @@ const (
 )
 
 type Model struct {
-	stack          []screen
-	termWidth      int
-	termHeight     int
+	stack      []screen
+	termWidth  int
+	termHeight int
 
 	dbConn         *db.Database
 	dbTypeList     table.Model
@@ -38,9 +38,9 @@ type Model struct {
 	selectedDBType string
 	errMsg         string
 
-	rowTableCols   []string
-	rowTableRows   [][]string
-	hOffset        int
+	rowTableCols []string
+	rowTableRows [][]string
+	hOffset      int
 }
 
 func NewModel() *Model {
@@ -155,7 +155,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
-			case "esc", "b":
+			case "esc":
 				m.pop()
 				return m, nil
 			case "enter":
