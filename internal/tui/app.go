@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"lazydb/internal/db"
+	"log"
+	"os"
 	"strconv"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -58,14 +60,14 @@ type Model struct {
 }
 
 var normalBorder = btable.Border{
-	Top:         "─",
-	Left:        "│",
-	Right:       "│",
-	Bottom:      "─",
-	TopRight:    "┐",
-	TopLeft:     "┌",
-	BottomRight: "┘",
-	BottomLeft:  "└",
+	Top:            "─",
+	Left:           "│",
+	Right:          "│",
+	Bottom:         "─",
+	TopRight:       "┐",
+	TopLeft:        "┌",
+	BottomRight:    "┘",
+	BottomLeft:     "└",
 	TopJunction:    "┬",
 	LeftJunction:   "├",
 	RightJunction:  "┤",
@@ -224,10 +226,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Connection failed: %v", err)
 					return m, nil
 				}
-			m.dbConn = database
-			tables := m.dbConn.FetchTables()
-			m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
-			m.push(screenTables)
+				m.dbConn = database
+				tables := m.dbConn.FetchTables()
+				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+				m.push(screenTables)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -289,14 +291,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Connection failed: %v", err)
 					return m, nil
 				}
-			m.dbConn = database
-			databases, err := m.dbConn.FetchDatabases()
-			if err != nil {
-				m.errMsg = fmt.Sprintf("Failed to fetch databases: %v", err)
-				return m, nil
-			}
-			m.dbList = makeDatabaseTable(databases, m.termWidth, m.pageSize)
-			m.push(screenDatabases)
+				m.dbConn = database
+				databases, err := m.dbConn.FetchDatabases()
+				if err != nil {
+					m.errMsg = fmt.Sprintf("Failed to fetch databases: %v", err)
+					return m, nil
+				}
+				m.dbList = makeDatabaseTable(databases, m.termWidth, m.pageSize)
+				m.push(screenDatabases)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -327,9 +329,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to select database: %v", err)
 					return m, nil
 				}
-			tables := m.dbConn.FetchTables()
-			m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
-			m.push(screenTables)
+				tables := m.dbConn.FetchTables()
+				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+				m.push(screenTables)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -356,7 +358,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				tableName := fmt.Sprintf("%v", val)
-				m.openRowTable(tableName)
+				m.openRowTable(tableName, m.termWidth, m.pageSize)
 				m.push(screenRows)
 				return m, nil
 			}
@@ -482,7 +484,6 @@ func makeDBTypeTable(width, pageSize int) btable.Model {
 			"name": dbType,
 		}))
 	}
-
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
@@ -498,7 +499,6 @@ func makeTableListTable(tables []string, width, pageSize int) btable.Model {
 			"name": name,
 		}))
 	}
-
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
@@ -514,11 +514,10 @@ func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
 			"name": name,
 		}))
 	}
-
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
-func (m *Model) openRowTable(tableName string) {
+func (m *Model) openRowTable(tableName string, width, pageSize int) {
 	cols := m.dbConn.GetColumns(tableName)
 	m.rowTableName = tableName
 	m.rowColumns = cols
@@ -558,13 +557,60 @@ func (m *Model) fetchRowWindow(offset int) {
 		}
 	}
 
+	file, err := os.OpenFile(
+		"app.log",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0666,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	// Send log output to file
+	logger := log.New(file, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+
+	logger.Println("Log Start---------------------")
+
+	finalWidths := make([]int, len(m.rowColumns))
+	for i := range colWidths {
+		finalWidths[i] = colWidths[i] + 1
+	}
+
+	totalColWidth := 0
+	for _, w := range finalWidths {
+		totalColWidth += w
+	}
+	totalTableWidth := totalColWidth + len(m.rowColumns)
+
+	logger.Println("Total Col Width: ", totalColWidth)
+	logger.Println("TermWidth: ", m.termWidth)
+
+	if totalColWidth < m.termWidth {
+		logger.Println("Extra: ", m.termWidth-totalColWidth)
+		logger.Println("TotalTableWidth: ", totalTableWidth)
+
+		for i := range finalWidths {
+			proportion := float64(finalWidths[i]) / float64(totalColWidth)
+			logger.Println("proportion: ", proportion)
+			finalWidths[i] = int(proportion * float64(m.termWidth-2))
+		}
+
+		logger.Println("Final Widths")
+		for _, f := range finalWidths {
+			logger.Println(f)
+		}
+
+		logger.Println("Log End----------------------")
+	} else {
+		for i := range finalWidths {
+			finalWidths[i] = min(finalWidths[i], maxColWidth)
+		}
+	}
+
 	columns := make([]btable.Column, len(m.rowColumns))
 	for i, name := range m.rowColumns {
-		w := colWidths[i] + 2
-		if w > maxColWidth {
-			w = maxColWidth
-		}
-		columns[i] = btable.NewColumn(name, name, w)
+		columns[i] = btable.NewColumn(name, name, finalWidths[i])
 	}
 
 	bRows := make([]btable.Row, len(rows))
@@ -578,6 +624,6 @@ func (m *Model) fetchRowWindow(offset int) {
 
 	m.rowTable = styledTable(columns, bRows).
 		WithPageSize(m.pageSize).
-		WithMaxTotalWidth(m.termWidth - 2).
+		WithMaxTotalWidth(m.termWidth).
 		WithHorizontalFreezeColumnCount(1)
 }
