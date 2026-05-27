@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
+	"github.com/mattn/go-runewidth"
 )
 
 type screen int
@@ -22,10 +23,20 @@ const (
 	screenRows
 )
 
+const maxColWidth = 40
+
+func dynamicPageSize(h int) int {
+	if h < 13 {
+		return 5
+	}
+	return h - 8
+}
+
 type Model struct {
 	stack      []screen
 	termWidth  int
 	termHeight int
+	pageSize   int
 
 	dbConn         *db.Database
 	dbTypeList     btable.Model
@@ -69,7 +80,7 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 }
 
 func NewModel() *Model {
-	dbTypeTable := makeDBTypeTable()
+	dbTypeTable := makeDBTypeTable(120, dynamicPageSize(60))
 
 	ti := textinput.New()
 	ti.Placeholder = "Enter path to SQLite database file"
@@ -99,6 +110,7 @@ func NewModel() *Model {
 		focusedInput: 0,
 		termWidth:    120,
 		termHeight:   60,
+		pageSize:     dynamicPageSize(60),
 	}
 	return m
 }
@@ -129,7 +141,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
-		m.rowTable = m.rowTable.WithMaxTotalWidth(m.termWidth)
+		m.pageSize = dynamicPageSize(m.termHeight)
+
+		m.dbTypeList = m.dbTypeList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
+		m.dbList = m.dbList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
+		m.tableList = m.tableList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
+		m.rowTable = m.rowTable.WithMaxTotalWidth(m.termWidth).WithPageSize(m.pageSize)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -200,10 +217,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Connection failed: %v", err)
 					return m, nil
 				}
-				m.dbConn = database
-				tables := m.dbConn.FetchTables()
-				m.tableList = makeTableListTable(tables)
-				m.push(screenTables)
+			m.dbConn = database
+			tables := m.dbConn.FetchTables()
+			m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+			m.push(screenTables)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -265,14 +282,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Connection failed: %v", err)
 					return m, nil
 				}
-				m.dbConn = database
-				databases, err := m.dbConn.FetchDatabases()
-				if err != nil {
-					m.errMsg = fmt.Sprintf("Failed to fetch databases: %v", err)
-					return m, nil
-				}
-				m.dbList = makeDatabaseTable(databases)
-				m.push(screenDatabases)
+			m.dbConn = database
+			databases, err := m.dbConn.FetchDatabases()
+			if err != nil {
+				m.errMsg = fmt.Sprintf("Failed to fetch databases: %v", err)
+				return m, nil
+			}
+			m.dbList = makeDatabaseTable(databases, m.termWidth, m.pageSize)
+			m.push(screenDatabases)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -303,9 +320,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to select database: %v", err)
 					return m, nil
 				}
-				tables := m.dbConn.FetchTables()
-				m.tableList = makeTableListTable(tables)
-				m.push(screenTables)
+			tables := m.dbConn.FetchTables()
+			m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+			m.push(screenTables)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -348,6 +365,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "b":
 				m.pop()
+				return m, nil
+			case "h":
+				m.rowTable = m.rowTable.ScrollLeft()
+				return m, nil
+			case "l":
+				m.rowTable = m.rowTable.ScrollRight()
 				return m, nil
 			}
 		}
@@ -395,7 +418,7 @@ func (m Model) View() string {
 		case screenTables:
 			statusBar = "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 		case screenRows:
-			statusBar = "↑↓: navigate • shift+←→: scroll • Esc: back • q: quit"
+			statusBar = "↑↓: navigate • h/l or shift+←→: scroll • Esc: back • q: quit"
 		}
 	}
 
@@ -407,10 +430,10 @@ func (m Model) View() string {
 
 // Helper constructors
 
-func makeDBTypeTable() btable.Model {
+func makeDBTypeTable(width, pageSize int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
-		btable.NewColumn("name", "Database Type", 20),
+		btable.NewFlexColumn("name", "Database Type", 1),
 	}
 	rows := []btable.Row{}
 	for i, dbType := range db.SupportedDBs {
@@ -420,13 +443,13 @@ func makeDBTypeTable() btable.Model {
 		}))
 	}
 
-	return styledTable(columns, rows)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
-func makeTableListTable(tables []string) btable.Model {
+func makeTableListTable(tables []string, width, pageSize int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
-		btable.NewColumn("name", "Table Name", 30),
+		btable.NewFlexColumn("name", "Table Name", 1),
 	}
 	rows := []btable.Row{}
 	for i, name := range tables {
@@ -436,13 +459,13 @@ func makeTableListTable(tables []string) btable.Model {
 		}))
 	}
 
-	return styledTable(columns, rows).WithPageSize(20)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
-func makeDatabaseTable(databases []string) btable.Model {
+func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
-		btable.NewColumn("name", "Database Name", 30),
+		btable.NewFlexColumn("name", "Database Name", 1),
 	}
 	rows := []btable.Row{}
 	for i, name := range databases {
@@ -452,16 +475,35 @@ func makeDatabaseTable(databases []string) btable.Model {
 		}))
 	}
 
-	return styledTable(columns, rows).WithPageSize(20)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
 func (m *Model) openRowTable(tableName string) {
 	cols := m.dbConn.GetColumns(tableName)
 	rows, _ := m.dbConn.GetRows(tableName, cols)
 
+	colWidths := make([]int, len(cols))
+	for i, name := range cols {
+		colWidths[i] = runewidth.StringWidth(name)
+	}
+	for _, row := range rows {
+		for j, val := range row {
+			if j < len(colWidths) {
+				w := runewidth.StringWidth(val)
+				if w > colWidths[j] {
+					colWidths[j] = w
+				}
+			}
+		}
+	}
+
 	columns := make([]btable.Column, len(cols))
 	for i, name := range cols {
-		columns[i] = btable.NewColumn(name, name, 12)
+		w := colWidths[i] + 2
+		if w > maxColWidth {
+			w = maxColWidth
+		}
+		columns[i] = btable.NewColumn(name, name, w)
 	}
 
 	bRows := make([]btable.Row, len(rows))
@@ -474,6 +516,7 @@ func (m *Model) openRowTable(tableName string) {
 	}
 
 	m.rowTable = styledTable(columns, bRows).
-		WithPageSize(20).
-		WithMaxTotalWidth(m.termWidth)
+		WithPageSize(m.pageSize).
+		WithMaxTotalWidth(m.termWidth - 2).
+		WithHorizontalFreezeColumnCount(1)
 }
