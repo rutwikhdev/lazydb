@@ -228,6 +228,31 @@ func (db *Database) GetRows(table string, columns []string) ([][]string, error) 
 	}
 	defer rows.Close()
 
+	return scanRows(rows, columns)
+}
+
+func (db *Database) GetRowsPaginated(table string, columns []string, offset, limit int) ([][]string, error) {
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("no columns provided")
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s LIMIT %d OFFSET %d",
+		strings.Join(columns, ", "),
+		table,
+		limit,
+		offset,
+	)
+
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRows(rows, columns)
+}
+
+func scanRows(rows *sql.Rows, columns []string) ([][]string, error) {
 	var results [][]string
 
 	for rows.Next() {

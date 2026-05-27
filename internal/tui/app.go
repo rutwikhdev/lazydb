@@ -48,6 +48,13 @@ type Model struct {
 	rowTable       btable.Model
 	selectedDBType string
 	errMsg         string
+
+	// Pagination state for row viewer
+	rowTableName string
+	rowOffset    int
+	rowLimit     int
+	rowColumns   []string
+	rowHasMore   bool
 }
 
 var normalBorder = btable.Border{
@@ -372,6 +379,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "l":
 				m.rowTable = m.rowTable.ScrollRight()
 				return m, nil
+			case "up", "k":
+				idx := m.rowTable.GetHighlightedRowIndex()
+				if idx == 0 {
+					if m.rowOffset == 0 {
+						// At the absolute first record — do nothing
+						return m, nil
+					}
+					// Fetch previous window
+					prevOffset := m.rowOffset - m.rowLimit
+					if prevOffset < 0 {
+						prevOffset = 0
+					}
+					m.fetchRowWindow(prevOffset)
+					visible := m.rowTable.GetVisibleRows()
+					if len(visible) > 0 {
+						m.rowTable = m.rowTable.WithHighlightedRow(len(visible) - 1)
+					}
+					return m, nil
+				}
+			case "down", "j":
+				visible := m.rowTable.GetVisibleRows()
+				idx := m.rowTable.GetHighlightedRowIndex()
+				if idx >= len(visible)-1 {
+					if !m.rowHasMore {
+						// At the absolute last record — do nothing
+						return m, nil
+					}
+					// Fetch next window
+					m.fetchRowWindow(m.rowOffset + m.rowLimit)
+					return m, nil
+				}
 			}
 		}
 		m.rowTable, cmd = m.rowTable.Update(msg)
@@ -418,7 +456,9 @@ func (m Model) View() string {
 		case screenTables:
 			statusBar = "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 		case screenRows:
-			statusBar = "↑↓: navigate • h/l or shift+←→: scroll • Esc: back • q: quit"
+			start := m.rowOffset + 1
+			end := m.rowOffset + len(m.rowTable.GetVisibleRows())
+			statusBar = fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Esc: back • q: quit • Rows %d-%d", start, end)
 		}
 	}
 
@@ -480,10 +520,31 @@ func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
 
 func (m *Model) openRowTable(tableName string) {
 	cols := m.dbConn.GetColumns(tableName)
-	rows, _ := m.dbConn.GetRows(tableName, cols)
+	m.rowTableName = tableName
+	m.rowColumns = cols
+	m.rowOffset = 0
+	m.rowLimit = 500
+	m.rowHasMore = true
+	m.fetchRowWindow(0)
+}
 
-	colWidths := make([]int, len(cols))
-	for i, name := range cols {
+func (m *Model) fetchRowWindow(offset int) {
+	rows, err := m.dbConn.GetRowsPaginated(m.rowTableName, m.rowColumns, offset, m.rowLimit)
+	if err != nil {
+		m.errMsg = fmt.Sprintf("Failed to fetch rows: %v", err)
+		return
+	}
+
+	if len(rows) == 0 {
+		m.rowHasMore = false
+		return
+	}
+
+	m.rowOffset = offset
+	m.rowHasMore = len(rows) == m.rowLimit
+
+	colWidths := make([]int, len(m.rowColumns))
+	for i, name := range m.rowColumns {
 		colWidths[i] = runewidth.StringWidth(name)
 	}
 	for _, row := range rows {
@@ -497,8 +558,8 @@ func (m *Model) openRowTable(tableName string) {
 		}
 	}
 
-	columns := make([]btable.Column, len(cols))
-	for i, name := range cols {
+	columns := make([]btable.Column, len(m.rowColumns))
+	for i, name := range m.rowColumns {
 		w := colWidths[i] + 2
 		if w > maxColWidth {
 			w = maxColWidth
@@ -510,7 +571,7 @@ func (m *Model) openRowTable(tableName string) {
 	for i, row := range rows {
 		data := make(btable.RowData, len(row))
 		for j, val := range row {
-			data[cols[j]] = val
+			data[m.rowColumns[j]] = val
 		}
 		bRows[i] = btable.NewRow(data)
 	}
