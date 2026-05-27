@@ -5,10 +5,10 @@ import (
 	"lazydb/internal/db"
 	"strconv"
 
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	btable "github.com/evertras/bubble-table/table"
 )
 
 type screen int
@@ -28,19 +28,44 @@ type Model struct {
 	termHeight int
 
 	dbConn         *db.Database
-	dbTypeList     table.Model
+	dbTypeList     btable.Model
 	sqlitePath     textinput.Model
 	connInputs     []textinput.Model
 	focusedInput   int
-	dbList         table.Model
-	tableList      table.Model
-	rowTable       table.Model
+	dbList         btable.Model
+	tableList      btable.Model
+	rowTable       btable.Model
 	selectedDBType string
 	errMsg         string
+}
 
-	rowTableCols []string
-	rowTableRows [][]string
-	hOffset      int
+var normalBorder = btable.Border{
+	Top:         "─",
+	Left:        "│",
+	Right:       "│",
+	Bottom:      "─",
+	TopRight:    "┐",
+	TopLeft:     "┌",
+	BottomRight: "┘",
+	BottomLeft:  "└",
+	TopJunction:    "┬",
+	LeftJunction:   "├",
+	RightJunction:  "┤",
+	BottomJunction: "┴",
+	InnerJunction:  "┼",
+	InnerDivider:   "│",
+}
+
+func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
+	return btable.New(columns).
+		WithRows(rows).
+		Focused(true).
+		Border(normalBorder).
+		WithBaseStyle(lipgloss.NewStyle().BorderForeground(lipgloss.Color("240"))).
+		HeaderStyle(lipgloss.NewStyle().
+			Foreground(lipgloss.Color("230")).
+			Background(lipgloss.Color("62")).
+			Bold(true))
 }
 
 func NewModel() *Model {
@@ -104,9 +129,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
-		if m.currentScreen() == screenRows && len(m.rowTableCols) > 0 {
-			m.rebuildRowTable()
-		}
+		m.rowTable = m.rowTable.WithMaxTotalWidth(m.termWidth)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -122,11 +145,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				return m, tea.Quit
 			case "enter":
-				selected := m.dbTypeList.SelectedRow()
-				if len(selected) < 2 {
+				selected := m.dbTypeList.HighlightedRow()
+				if selected.Data == nil {
 					return m, nil
 				}
-				m.selectedDBType = selected[1]
+				val, ok := selected.Data["name"]
+				if !ok {
+					return m, nil
+				}
+				m.selectedDBType = fmt.Sprintf("%v", val)
 				if m.selectedDBType == db.DB_SQLITE {
 					m.push(screenSQLitePath)
 					m.sqlitePath.Focus()
@@ -263,11 +290,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "enter":
-				selected := m.dbList.SelectedRow()
-				if len(selected) < 2 {
+				selected := m.dbList.HighlightedRow()
+				if selected.Data == nil {
 					return m, nil
 				}
-				dbName := selected[1]
+				val, ok := selected.Data["name"]
+				if !ok {
+					return m, nil
+				}
+				dbName := fmt.Sprintf("%v", val)
 				if err := m.dbConn.SelectDatabase(dbName); err != nil {
 					m.errMsg = fmt.Sprintf("Failed to select database: %v", err)
 					return m, nil
@@ -292,11 +323,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "enter":
-				selected := m.tableList.SelectedRow()
-				if len(selected) < 2 {
+				selected := m.tableList.HighlightedRow()
+				if selected.Data == nil {
 					return m, nil
 				}
-				tableName := selected[1]
+				val, ok := selected.Data["name"]
+				if !ok {
+					return m, nil
+				}
+				tableName := fmt.Sprintf("%v", val)
 				m.openRowTable(tableName)
 				m.push(screenRows)
 				return m, nil
@@ -313,26 +348,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "b":
 				m.pop()
-				return m, nil
-			case "h":
-				if m.hOffset > 0 {
-					m.hOffset--
-					m.rebuildRowTable()
-				}
-				return m, nil
-			case "l":
-				maxVisible := m.maxVisibleColumns()
-				if maxVisible < 1 {
-					maxVisible = 1
-				}
-				maxOffset := len(m.rowTableCols) - maxVisible
-				if maxOffset < 0 {
-					maxOffset = 0
-				}
-				if m.hOffset < maxOffset {
-					m.hOffset++
-					m.rebuildRowTable()
-				}
 				return m, nil
 			}
 		}
@@ -380,7 +395,7 @@ func (m Model) View() string {
 		case screenTables:
 			statusBar = "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 		case screenRows:
-			statusBar = "↑↓: navigate • h/l: scroll left/right • Esc: back • q: quit"
+			statusBar = "↑↓: navigate • shift+←→: scroll • Esc: back • q: quit"
 		}
 	}
 
@@ -392,164 +407,73 @@ func (m Model) View() string {
 
 // Helper constructors
 
-func makeDBTypeTable() table.Model {
-	columns := []table.Column{
-		{Title: "ID", Width: 4},
-		{Title: "Database Type", Width: 20},
+func makeDBTypeTable() btable.Model {
+	columns := []btable.Column{
+		btable.NewColumn("id", "ID", 4),
+		btable.NewColumn("name", "Database Type", 20),
 	}
-	rows := []table.Row{}
+	rows := []btable.Row{}
 	for i, dbType := range db.SupportedDBs {
-		rows = append(rows, table.Row{strconv.Itoa(i + 1), dbType})
+		rows = append(rows, btable.NewRow(btable.RowData{
+			"id":   strconv.Itoa(i + 1),
+			"name": dbType,
+		}))
 	}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(7),
-	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("62")).
-		MarginBottom(1).
-		Underline(true).
-		Bold(true)
-	t.SetStyles(s)
-	return t
+	return styledTable(columns, rows)
 }
 
-func makeTableListTable(tables []string) table.Model {
-	columns := []table.Column{
-		{Title: "ID", Width: 4},
-		{Title: "Table Name", Width: 30},
+func makeTableListTable(tables []string) btable.Model {
+	columns := []btable.Column{
+		btable.NewColumn("id", "ID", 4),
+		btable.NewColumn("name", "Table Name", 30),
 	}
-	rows := []table.Row{}
+	rows := []btable.Row{}
 	for i, name := range tables {
-		rows = append(rows, table.Row{strconv.Itoa(i + 1), name})
+		rows = append(rows, btable.NewRow(btable.RowData{
+			"id":   strconv.Itoa(i + 1),
+			"name": name,
+		}))
 	}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(25),
-	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("62")).
-		MarginBottom(1).
-		Underline(true).
-		Bold(true)
-	t.SetStyles(s)
-	return t
+	return styledTable(columns, rows).WithPageSize(20)
 }
 
-func makeDatabaseTable(databases []string) table.Model {
-	columns := []table.Column{
-		{Title: "ID", Width: 4},
-		{Title: "Database Name", Width: 30},
+func makeDatabaseTable(databases []string) btable.Model {
+	columns := []btable.Column{
+		btable.NewColumn("id", "ID", 4),
+		btable.NewColumn("name", "Database Name", 30),
 	}
-	rows := []table.Row{}
+	rows := []btable.Row{}
 	for i, name := range databases {
-		rows = append(rows, table.Row{strconv.Itoa(i + 1), name})
+		rows = append(rows, btable.NewRow(btable.RowData{
+			"id":   strconv.Itoa(i + 1),
+			"name": name,
+		}))
 	}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(25),
-	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("62")).
-		MarginBottom(1).
-		Underline(true).
-		Bold(true)
-	t.SetStyles(s)
-	return t
+	return styledTable(columns, rows).WithPageSize(20)
 }
 
 func (m *Model) openRowTable(tableName string) {
-	m.rowTableCols = m.dbConn.GetColumns(tableName)
-	m.rowTableRows, _ = m.dbConn.GetRows(tableName, m.rowTableCols)
-	m.hOffset = 0
-	m.rebuildRowTable()
-}
+	cols := m.dbConn.GetColumns(tableName)
+	rows, _ := m.dbConn.GetRows(tableName, cols)
 
-func (m *Model) rebuildRowTable() {
-	if len(m.rowTableCols) == 0 {
-		return
+	columns := make([]btable.Column, len(cols))
+	for i, name := range cols {
+		columns[i] = btable.NewColumn(name, name, 12)
 	}
-	cursor := m.rowTable.Cursor()
-	visibleCols, visibleRows := m.sliceVisible(m.rowTableCols, m.rowTableRows, m.hOffset)
-	columns := makeColumns(visibleCols)
-	rows := makeRows(visibleRows)
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(25),
-	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("62")).
-		MarginBottom(1).
-		Underline(true).
-		Bold(true)
-	t.SetStyles(s)
-	if cursor < len(rows) {
-		t.SetCursor(cursor)
-	}
-	m.rowTable = t
-}
-
-func (m *Model) maxVisibleColumns() int {
-	return m.termWidth / 15
-}
-
-func (m *Model) sliceVisible(cols []string, rows [][]string, offset int) ([]string, [][]string) {
-	maxVisible := m.maxVisibleColumns()
-	if maxVisible < 1 {
-		maxVisible = 1
-	}
-	end := offset + maxVisible
-	if end > len(cols) {
-		end = len(cols)
-	}
-	visibleCols := cols[offset:end]
-	visibleRows := make([][]string, len(rows))
+	bRows := make([]btable.Row, len(rows))
 	for i, row := range rows {
-		if offset < len(row) {
-			rowEnd := end
-			if rowEnd > len(row) {
-				rowEnd = len(row)
-			}
-			visibleRows[i] = row[offset:rowEnd]
-		} else {
-			visibleRows[i] = []string{}
+		data := make(btable.RowData, len(row))
+		for j, val := range row {
+			data[cols[j]] = val
 		}
+		bRows[i] = btable.NewRow(data)
 	}
-	return visibleCols, visibleRows
-}
 
-func makeColumns(columnNames []string) []table.Column {
-	columns := []table.Column{}
-	for _, name := range columnNames {
-		columns = append(columns, table.Column{Title: name, Width: 12})
-	}
-	return columns
-}
-
-func makeRows(rowData [][]string) []table.Row {
-	rows := []table.Row{}
-	for _, row := range rowData {
-		rows = append(rows, row)
-	}
-	return rows
+	m.rowTable = styledTable(columns, bRows).
+		WithPageSize(20).
+		WithMaxTotalWidth(m.termWidth)
 }
