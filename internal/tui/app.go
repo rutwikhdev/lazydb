@@ -183,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.connInputs[0].Focus()
 					// Prefill port based on DB type
 					switch m.selectedDBType {
-					case db.DB_MYSQL, db.DB_MARIADB:
+					case db.DB_MYSQL:
 						m.connInputs[1].SetValue(strconv.Itoa(db.MYSQL_DEFAULT_PORT))
 					case db.DB_POSTGRES:
 						m.connInputs[1].SetValue(strconv.Itoa(db.POSTGRES_DEFAULT_PORT))
@@ -263,7 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				port, err := strconv.Atoi(portStr)
 				if err != nil || portStr == "" {
 					switch m.selectedDBType {
-					case db.DB_MYSQL, db.DB_MARIADB:
+					case db.DB_MYSQL:
 						port = db.MYSQL_DEFAULT_PORT
 					case db.DB_POSTGRES:
 						port = db.POSTGRES_DEFAULT_PORT

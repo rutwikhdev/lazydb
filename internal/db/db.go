@@ -32,7 +32,7 @@ func BuildDSN(info ConnectionInfo) (string, error) {
 	switch info.Type {
 	case DB_SQLITE:
 		return info.Path, nil
-	case DB_MYSQL, DB_MARIADB:
+	case DB_MYSQL:
 		dbName := info.Database
 		if dbName == "" {
 			dbName = ""
@@ -129,7 +129,7 @@ func (db *Database) FetchDatabases() ([]string, error) {
 
 func (db *Database) SelectDatabase(name string) error {
 	switch db.Type {
-	case DB_MYSQL, DB_MARIADB:
+	case DB_MYSQL:
 		_, err := db.DB.Exec("USE " + name)
 		if err != nil {
 			return err
@@ -166,7 +166,7 @@ func (db *Database) GetColumns(table string) []string {
 	switch db.Type {
 	case DB_SQLITE:
 		query = fmt.Sprintf("PRAGMA table_info(%s);", table)
-	case DB_MYSQL, DB_MARIADB:
+	case DB_MYSQL:
 		query = fmt.Sprintf("SHOW COLUMNS FROM %s;", table)
 	case DB_POSTGRES:
 		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s';", table)
@@ -193,7 +193,7 @@ func (db *Database) GetColumns(table string) []string {
 			if err != nil {
 				log.Fatal(err)
 			}
-		case DB_MYSQL, DB_MARIADB:
+		case DB_MYSQL:
 			var fieldType, null, key, extra string
 			var defaultValue any
 			err := rows.Scan(&name, &fieldType, &null, &key, &defaultValue, &extra)
