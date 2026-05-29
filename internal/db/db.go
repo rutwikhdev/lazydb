@@ -70,7 +70,7 @@ func NewDBFromInfo(info ConnectionInfo) (*Database, error) {
 }
 
 func (db *Database) FetchTables() ([]string, error) {
-	query, ok := Tables[db.Type]
+	query, ok := FetchTablesQuery[db.Type]
 	if !ok || len(query) == 0 {
 		return nil, fmt.Errorf("database type %s not supported for listing tables", db.Type)
 	}
@@ -99,7 +99,7 @@ func (db *Database) FetchTables() ([]string, error) {
 }
 
 func (db *Database) FetchDatabases() ([]string, error) {
-	query, ok := Databases[db.Type]
+	query, ok := FetchDatabasesQuery[db.Type]
 	if !ok || len(query) == 0 {
 		return nil, fmt.Errorf("database type %s does not support listing databases", db.Type)
 	}
@@ -252,7 +252,7 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 }
 
 func (db *Database) GetPrimaryKey(table string) string {
-	query, ok := PrimaryKeyQueries[db.Type]
+	query, ok := FetchPrimaryKeyQuery[db.Type]
 	if !ok {
 		return ""
 	}
