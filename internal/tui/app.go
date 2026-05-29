@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"lazydb/internal/db"
+	"lazydb/internal/utils"
 	"log"
 	"os"
 	"strconv"
@@ -568,8 +569,7 @@ func (m *Model) fetchRowWindow(offset int) {
 	defer file.Close()
 
 	// Send log output to file
-	logger := log.New(file, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-
+	logger := utils.NewLogger()
 	logger.Println("Log Start---------------------")
 
 	finalWidths := make([]int, len(m.rowColumns))
