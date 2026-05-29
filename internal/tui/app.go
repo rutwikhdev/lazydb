@@ -237,7 +237,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.dbConn = database
-				tables := m.dbConn.FetchTables()
+				tables, err := m.dbConn.FetchTables()
+				if err != nil {
+					m.errMsg = err.Error()
+					return m, nil
+				}
+
 				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
 				m.push(screenTables)
 				m.errMsg = ""
@@ -339,10 +344,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to select database: %v", err)
 					return m, nil
 				}
-				tables := m.dbConn.FetchTables()
+				tables, err := m.dbConn.FetchTables()
+				if err != nil {
+					m.errMsg = fmt.Sprintf("Failed to fetch tables: %v", err.Error())
+					return m, nil
+				}
+
 				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
 				m.push(screenTables)
 				m.errMsg = ""
+
 				return m, nil
 			}
 		}
@@ -363,12 +374,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selected.Data == nil {
 					return m, nil
 				}
+
 				val, ok := selected.Data["name"]
 				if !ok {
 					return m, nil
 				}
+
 				tableName := fmt.Sprintf("%v", val)
-				m.openRowTable(tableName, m.termWidth, m.pageSize)
+				err := m.openRowTable(tableName, m.termWidth, m.pageSize)
+				if err != nil {
+					m.errMsg = err.Error()
+					return m, nil
+				}
+
 				m.push(screenRows)
 				return m, nil
 			}
@@ -708,8 +726,11 @@ func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
 }
 
-func (m *Model) openRowTable(tableName string, width, pageSize int) {
-	cols := m.dbConn.GetColumns(tableName)
+func (m *Model) openRowTable(tableName string, width, pageSize int) error {
+	cols, err := m.dbConn.GetColumns(tableName)
+	if err != nil {
+		return err
+	}
 	m.rowTableName = tableName
 	m.rowColumns = cols
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
@@ -717,6 +738,8 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) {
 	m.rowLimit = 500
 	m.rowHasMore = true
 	m.fetchRowWindow(0)
+
+	return nil
 }
 
 func (m *Model) fetchRowWindow(offset int) {

@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -70,15 +69,15 @@ func NewDBFromInfo(info ConnectionInfo) (*Database, error) {
 	return &Database{DB: db, Type: info.Type, Conn: info}, nil
 }
 
-func (db *Database) FetchTables() []string {
+func (db *Database) FetchTables() ([]string, error) {
 	query, ok := Tables[db.Type]
 	if !ok || len(query) == 0 {
-		log.Fatalf("database type %s not supported for listing tables", db.Type)
+		return nil, fmt.Errorf("database type %s not supported for listing tables", db.Type)
 	}
 
 	rows, err := db.DB.Query(query)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("could not query database %s", err.Error())
 	}
 	defer rows.Close()
 
@@ -87,16 +86,16 @@ func (db *Database) FetchTables() []string {
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
-			log.Fatal(err)
+			return nil, fmt.Errorf("failed to scan table rows %s", err.Error())
 		}
 		tables = append(tables, tableName)
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("unable to fetch tables")
 	}
 
-	return tables
+	return tables, nil
 }
 
 func (db *Database) FetchDatabases() ([]string, error) {
@@ -161,7 +160,7 @@ func (db *Database) SelectDatabase(name string) error {
 	}
 }
 
-func (db *Database) GetColumns(table string) []string {
+func (db *Database) GetColumns(table string) ([]string, error) {
 	var query string
 	switch db.Type {
 	case DB_SQLITE:
@@ -171,12 +170,12 @@ func (db *Database) GetColumns(table string) []string {
 	case DB_POSTGRES:
 		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s';", table)
 	default:
-		log.Fatalf("unsupported database type for columns: %s", db.Type)
+		return nil, fmt.Errorf("unsupported database type for columns: %s", db.Type)
 	}
 
 	rows, err := db.DB.Query(query)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("could not execute query %s", err.Error())
 	}
 	defer rows.Close()
 
@@ -191,25 +190,25 @@ func (db *Database) GetColumns(table string) []string {
 			var dfltValue any
 			err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk)
 			if err != nil {
-				log.Fatal(err)
+				return nil, fmt.Errorf("could not fetch rows from sqlite, %s", err.Error())
 			}
 		case DB_MYSQL:
 			var fieldType, null, key, extra string
 			var defaultValue any
 			err := rows.Scan(&name, &fieldType, &null, &key, &defaultValue, &extra)
 			if err != nil {
-				log.Fatal(err)
+				return nil, fmt.Errorf("could not fetch rows from mysql, %s", err.Error())
 			}
 		case DB_POSTGRES:
 			err := rows.Scan(&name)
 			if err != nil {
-				log.Fatal(err)
+				return nil, fmt.Errorf("could not fetch rows from postgres, %s", err.Error())
 			}
 		}
 		columns = append(columns, name)
 	}
 
-	return columns
+	return columns, nil
 }
 
 func (db *Database) GetRows(table string, columns []string) ([][]string, error) {
@@ -268,7 +267,7 @@ func (db *Database) GetPrimaryKey(table string) string {
 }
 
 func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkVal string) ([]string, error) {
-	query := fmt.Sprintf("SELECT %s FROM `%s` WHERE `%s` = ?",
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
 		strings.Join(columns, ", "),
 		table,
 		pkCol,
