@@ -290,6 +290,29 @@ func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkV
 	return result[0], nil
 }
 
+func (db *Database) UpdateRow(table string, columns []string, values []string, pkCol string, pkVal string) error {
+	if len(columns) != len(values) {
+		return fmt.Errorf("columns and values length mismatch")
+	}
+
+	setClauses := make([]string, len(columns))
+	args := make([]any, len(columns)+1)
+	for i, col := range columns {
+		setClauses[i] = fmt.Sprintf("`%s` = ?", col)
+		args[i] = values[i]
+	}
+	args[len(columns)] = pkVal
+
+	query := fmt.Sprintf("UPDATE `%s` SET %s WHERE `%s` = ?",
+		table,
+		strings.Join(setClauses, ", "),
+		pkCol,
+	)
+
+	_, err := db.DB.Exec(query, args...)
+	return err
+}
+
 func scanRows(rows *sql.Rows, columns []string) ([][]string, error) {
 	var results [][]string
 

@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	btable "github.com/evertras/bubble-table/table"
-	"github.com/mattn/go-runewidth"
 )
 
 type screen int
@@ -23,6 +23,7 @@ const (
 	screenTables
 	screenRows
 	screenDetail
+	screenUpdate
 )
 
 const maxColWidth = 40
@@ -59,6 +60,13 @@ type Model struct {
 	rowHasMore    bool
 	primaryKeyCol string
 	detailTable   btable.Model
+
+	// Update state
+	updateInputs  []textinput.Model
+	updateFocused int
+	updatePKIdx   int
+	confirmUpdate bool
+	updatePKVal   string
 }
 
 var normalBorder = btable.Border{
@@ -436,6 +444,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.push(screenDetail)
 				m.errMsg = ""
 				return m, nil
+			case "U":
+				if m.primaryKeyCol == "" {
+					m.errMsg = "No primary key found for this table"
+					return m, nil
+				}
+				selected := m.rowTable.HighlightedRow()
+				if selected.Data == nil {
+					return m, nil
+				}
+				pkVal, ok := selected.Data[m.primaryKeyCol]
+				if !ok {
+					return m, nil
+				}
+				m.updatePKVal = fmt.Sprintf("%v", pkVal)
+				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, m.updatePKVal)
+				if err != nil {
+					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
+					return m, nil
+				}
+				m.updateInputs = make([]textinput.Model, len(m.rowColumns))
+				m.updatePKIdx = -1
+				firstEditable := -1
+				for i, col := range m.rowColumns {
+					if col == m.primaryKeyCol {
+						m.updatePKIdx = i
+					}
+					ti := textinput.New()
+					ti.Prompt = col + ": "
+					ti.Width = 50
+					if i < len(row) {
+						ti.SetValue(row[i])
+					}
+					m.updateInputs[i] = ti
+					if firstEditable == -1 && col != m.primaryKeyCol {
+						firstEditable = i
+					}
+				}
+				if firstEditable >= 0 {
+					m.updateInputs[firstEditable].Focus()
+					m.updateFocused = firstEditable
+				} else {
+					m.updateFocused = 0
+				}
+				m.confirmUpdate = false
+				m.push(screenUpdate)
+				m.errMsg = ""
+				return m, nil
 			}
 		}
 		m.rowTable, cmd = m.rowTable.Update(msg)
@@ -453,6 +508,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.detailTable, cmd = m.detailTable.Update(msg)
+		return m, cmd
+
+	case screenUpdate:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if m.confirmUpdate {
+				switch msg.String() {
+				case "y":
+					values := make([]string, len(m.updateInputs))
+					for i, ti := range m.updateInputs {
+						values[i] = ti.Value()
+					}
+					err := m.dbConn.UpdateRow(m.rowTableName, m.rowColumns, values, m.primaryKeyCol, m.updatePKVal)
+					if err != nil {
+						m.errMsg = fmt.Sprintf("Failed to update: %v", err)
+					} else {
+						m.errMsg = ""
+						m.fetchRowWindow(m.rowOffset)
+					}
+					m.pop()
+					return m, nil
+				case "n", "esc":
+					m.confirmUpdate = false
+					return m, nil
+				}
+				return m, nil
+			}
+			switch msg.String() {
+			case "esc":
+				m.pop()
+				return m, nil
+			case "tab":
+				m.updateInputs[m.updateFocused].Blur()
+				for {
+					m.updateFocused++
+					if m.updateFocused >= len(m.updateInputs) {
+						m.updateFocused = 0
+					}
+					if m.updateFocused != m.updatePKIdx {
+						break
+					}
+				}
+				m.updateInputs[m.updateFocused].Focus()
+				return m, nil
+			case "shift+tab":
+				m.updateInputs[m.updateFocused].Blur()
+				for {
+					m.updateFocused--
+					if m.updateFocused < 0 {
+						m.updateFocused = len(m.updateInputs) - 1
+					}
+					if m.updateFocused != m.updatePKIdx {
+						break
+					}
+				}
+				m.updateInputs[m.updateFocused].Focus()
+				return m, nil
+			case "enter":
+				m.confirmUpdate = true
+				return m, nil
+			}
+		}
+		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
 		return m, cmd
 	}
 
@@ -481,6 +599,30 @@ func (m Model) View() string {
 		content = m.rowTable.View()
 	case screenDetail:
 		content = m.detailTable.View()
+	case screenUpdate:
+		bg := m.rowTable.View()
+		var formContent strings.Builder
+		if m.confirmUpdate {
+			formContent.WriteString("Confirm update? (y/n)\n")
+		} else {
+			for i, input := range m.updateInputs {
+				if i == m.updatePKIdx {
+					formContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.rowColumns[i] + ": " + input.Value()))
+				} else {
+					formContent.WriteString(input.View())
+				}
+				formContent.WriteByte('\n')
+			}
+			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Hit "Enter" when done`)
+			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).Render(hint))
+		}
+		modalStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("13")).
+			Padding(1, 2).
+			Width(60)
+		modal := modalStyle.Render(formContent.String())
+		content = overlay(bg, modal, m.termWidth, m.termHeight)
 	}
 
 	var statusBar string
@@ -504,6 +646,12 @@ func (m Model) View() string {
 			statusBar = fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • Esc: back • q: quit • Rows %d-%d", start, end)
 		case screenDetail:
 			statusBar = "Esc: back • q: quit"
+		case screenUpdate:
+			if m.confirmUpdate {
+				statusBar = "y: confirm • n/esc: cancel"
+			} else {
+				statusBar = "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
+			}
 		}
 	}
 
@@ -588,12 +736,12 @@ func (m *Model) fetchRowWindow(offset int) {
 
 	colWidths := make([]int, len(m.rowColumns))
 	for i, name := range m.rowColumns {
-		colWidths[i] = runewidth.StringWidth(name)
+		colWidths[i] = ansi.StringWidth(name)
 	}
 	for _, row := range rows {
 		for j, val := range row {
 			if j < len(colWidths) {
-				w := runewidth.StringWidth(val)
+				w := ansi.StringWidth(val)
 				if w > colWidths[j] {
 					colWidths[j] = w
 				}
@@ -672,4 +820,49 @@ func makeDetailTable(row []string, columns []string, width, pageSize int) btable
 			Bold(true)).
 		WithMultiline(true).
 		WithTargetWidth(width)
+}
+
+func overlay(bg, fg string, width, height int) string {
+	bgLines := strings.Split(bg, "\n")
+	fgLines := strings.Split(fg, "\n")
+
+	fgWidth := 0
+	for _, line := range fgLines {
+		w := ansi.StringWidth(line)
+		if w > fgWidth {
+			fgWidth = w
+		}
+	}
+	fgHeight := len(fgLines)
+
+	startX := (width - fgWidth) / 2
+	startY := (height - fgHeight) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+
+	for len(bgLines) < startY+fgHeight {
+		bgLines = append(bgLines, "")
+	}
+
+	for i, fgLine := range fgLines {
+		bgIdx := startY + i
+		if bgIdx >= len(bgLines) {
+			break
+		}
+		bgLine := bgLines[bgIdx]
+		bgWidth := ansi.StringWidth(bgLine)
+		if bgWidth < startX {
+			bgLine = bgLine + strings.Repeat(" ", startX-bgWidth)
+		}
+		left := ansi.Cut(bgLine, 0, startX)
+		fgLineWidth := ansi.StringWidth(fgLine)
+		right := ansi.TruncateLeft(bgLine, startX+fgLineWidth, "")
+		bgLines[bgIdx] = left + fgLine + right
+	}
+
+	return strings.Join(bgLines, "\n")
 }
