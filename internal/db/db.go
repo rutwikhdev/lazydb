@@ -23,9 +23,9 @@ type ConnectionInfo struct {
 }
 
 type Database struct {
-	DB     *sql.DB
-	Type   string
-	Conn   ConnectionInfo
+	DB   *sql.DB
+	Type string
+	Conn ConnectionInfo
 }
 
 func BuildDSN(info ConnectionInfo) (string, error) {
@@ -167,7 +167,7 @@ func (db *Database) GetColumns(table string) []string {
 	case DB_SQLITE:
 		query = fmt.Sprintf("PRAGMA table_info(%s);", table)
 	case DB_MYSQL:
-		query = fmt.Sprintf("SHOW COLUMNS FROM %s;", table)
+		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`;", table)
 	case DB_POSTGRES:
 		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s';", table)
 	default:
@@ -217,7 +217,7 @@ func (db *Database) GetRows(table string, columns []string) ([][]string, error) 
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM %s",
+	query := fmt.Sprintf("SELECT %s FROM `%s`",
 		strings.Join(columns, ", "),
 		table,
 	)
@@ -236,7 +236,7 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM %s LIMIT %d OFFSET %d",
+	query := fmt.Sprintf("SELECT %s FROM `%s` LIMIT %d OFFSET %d",
 		strings.Join(columns, ", "),
 		table,
 		limit,
