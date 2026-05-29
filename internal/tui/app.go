@@ -3,9 +3,6 @@ package tui
 import (
 	"fmt"
 	"lazydb/internal/db"
-	"lazydb/internal/utils"
-	"log"
-	"os"
 	"strconv"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -84,8 +81,8 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 		Border(normalBorder).
 		WithBaseStyle(lipgloss.NewStyle().BorderForeground(lipgloss.Color("240"))).
 		HeaderStyle(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("62")).
+			Padding(2).
+			Foreground(lipgloss.Color("13")). // BrightMagenta
 			Bold(true))
 }
 
@@ -558,20 +555,6 @@ func (m *Model) fetchRowWindow(offset int) {
 		}
 	}
 
-	file, err := os.OpenFile(
-		"app.log",
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0666,
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	// Send log output to file
-	logger := utils.NewLogger()
-	logger.Println("Log Start---------------------")
-
 	finalWidths := make([]int, len(m.rowColumns))
 	for i := range colWidths {
 		finalWidths[i] = colWidths[i] + 1
@@ -581,27 +564,12 @@ func (m *Model) fetchRowWindow(offset int) {
 	for _, w := range finalWidths {
 		totalColWidth += w
 	}
-	totalTableWidth := totalColWidth + len(m.rowColumns)
-
-	logger.Println("Total Col Width: ", totalColWidth)
-	logger.Println("TermWidth: ", m.termWidth)
 
 	if totalColWidth < m.termWidth {
-		logger.Println("Extra: ", m.termWidth-totalColWidth)
-		logger.Println("TotalTableWidth: ", totalTableWidth)
-
 		for i := range finalWidths {
 			proportion := float64(finalWidths[i]) / float64(totalColWidth)
-			logger.Println("proportion: ", proportion)
-			finalWidths[i] = int(proportion * float64(m.termWidth-2))
+			finalWidths[i] = int(proportion * float64(m.termWidth-3))
 		}
-
-		logger.Println("Final Widths")
-		for _, f := range finalWidths {
-			logger.Println(f)
-		}
-
-		logger.Println("Log End----------------------")
 	} else {
 		for i := range finalWidths {
 			finalWidths[i] = min(finalWidths[i], maxColWidth)
