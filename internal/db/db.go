@@ -252,6 +252,44 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 	return scanRows(rows, columns)
 }
 
+func (db *Database) GetPrimaryKey(table string) string {
+	query, ok := PrimaryKeyQueries[db.Type]
+	if !ok {
+		return ""
+	}
+	query = fmt.Sprintf(query, table)
+
+	var pkCol string
+	err := db.DB.QueryRow(query).Scan(&pkCol)
+	if err != nil {
+		return ""
+	}
+	return pkCol
+}
+
+func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkVal string) ([]string, error) {
+	query := fmt.Sprintf("SELECT %s FROM `%s` WHERE `%s` = ?",
+		strings.Join(columns, ", "),
+		table,
+		pkCol,
+	)
+
+	rows, err := db.DB.Query(query, pkVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result, err := scanRows(rows, columns)
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("row not found")
+	}
+	return result[0], nil
+}
+
 func scanRows(rows *sql.Rows, columns []string) ([][]string, error) {
 	var results [][]string
 

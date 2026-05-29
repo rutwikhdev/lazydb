@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lazydb/internal/db"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,7 @@ const (
 	screenDatabases
 	screenTables
 	screenRows
+	screenDetail
 )
 
 const maxColWidth = 40
@@ -50,11 +52,13 @@ type Model struct {
 	errMsg         string
 
 	// Pagination state for row viewer
-	rowTableName string
-	rowOffset    int
-	rowLimit     int
-	rowColumns   []string
-	rowHasMore   bool
+	rowTableName  string
+	rowOffset     int
+	rowLimit      int
+	rowColumns    []string
+	rowHasMore    bool
+	primaryKeyCol string
+	detailTable   btable.Model
 }
 
 var normalBorder = btable.Border{
@@ -410,9 +414,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.fetchRowWindow(m.rowOffset + m.rowLimit)
 					return m, nil
 				}
+			case "enter":
+				if m.primaryKeyCol == "" {
+					m.errMsg = "No primary key found for this table"
+					return m, nil
+				}
+				selected := m.rowTable.HighlightedRow()
+				if selected.Data == nil {
+					return m, nil
+				}
+				pkVal, ok := selected.Data[m.primaryKeyCol]
+				if !ok {
+					return m, nil
+				}
+				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, fmt.Sprintf("%v", pkVal))
+				if err != nil {
+					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
+					return m, nil
+				}
+				m.detailTable = makeDetailTable(row, m.rowColumns, m.termWidth, m.pageSize)
+				m.push(screenDetail)
+				m.errMsg = ""
+				return m, nil
 			}
 		}
 		m.rowTable, cmd = m.rowTable.Update(msg)
+		return m, cmd
+
+	case screenDetail:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc", "b":
+				m.pop()
+				return m, nil
+			}
+		}
+		m.detailTable, cmd = m.detailTable.Update(msg)
 		return m, cmd
 	}
 
@@ -427,17 +467,20 @@ func (m Model) View() string {
 	case screenSQLitePath:
 		content = m.sqlitePath.View()
 	case screenConnectionForm:
-		form := ""
+		var form strings.Builder
 		for _, input := range m.connInputs {
-			form += input.View() + "\n"
+			form.WriteString(input.View())
+			form.WriteByte('\n')
 		}
-		content = form
+		content = form.String()
 	case screenDatabases:
 		content = m.dbList.View()
 	case screenTables:
 		content = m.tableList.View()
 	case screenRows:
 		content = m.rowTable.View()
+	case screenDetail:
+		content = m.detailTable.View()
 	}
 
 	var statusBar string
@@ -458,7 +501,9 @@ func (m Model) View() string {
 		case screenRows:
 			start := m.rowOffset + 1
 			end := m.rowOffset + len(m.rowTable.GetVisibleRows())
-			statusBar = fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Esc: back • q: quit • Rows %d-%d", start, end)
+			statusBar = fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • Esc: back • q: quit • Rows %d-%d", start, end)
+		case screenDetail:
+			statusBar = "Esc: back • q: quit"
 		}
 	}
 
@@ -519,6 +564,7 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) {
 	cols := m.dbConn.GetColumns(tableName)
 	m.rowTableName = tableName
 	m.rowColumns = cols
+	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
 	m.rowOffset = 0
 	m.rowLimit = 500
 	m.rowHasMore = true
@@ -594,4 +640,36 @@ func (m *Model) fetchRowWindow(offset int) {
 		WithPageSize(m.pageSize).
 		WithMaxTotalWidth(m.termWidth).
 		WithHorizontalFreezeColumnCount(1)
+}
+
+func makeDetailTable(row []string, columns []string, width, pageSize int) btable.Model {
+	colWidth := width / 4
+
+	colCol := btable.NewColumn("column", "Column", colWidth).
+		WithStyle(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")))
+	valCol := btable.NewFlexColumn("value", "Value", 1)
+
+	rows := make([]btable.Row, len(columns))
+	for i, col := range columns {
+		val := ""
+		if i < len(row) {
+			val = row[i]
+		}
+		rows[i] = btable.NewRow(btable.RowData{
+			"column": col,
+			"value":  val,
+		})
+	}
+
+	return btable.New([]btable.Column{colCol, valCol}).
+		WithRows(rows).
+		Focused(true).
+		Border(normalBorder).
+		WithBaseStyle(lipgloss.NewStyle().BorderForeground(lipgloss.Color("240"))).
+		HeaderStyle(lipgloss.NewStyle().
+			Padding(2).
+			Foreground(lipgloss.Color("13")).
+			Bold(true)).
+		WithMultiline(true).
+		WithTargetWidth(width)
 }
