@@ -216,9 +216,19 @@ func (db *Database) GetRows(table string, columns []string) ([][]string, error) 
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM `%s`",
-		strings.Join(columns, ", "),
-		table,
+	template, ok := SelectRowsQuery[db.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+	}
+
+	query := fmt.Sprintf(template,
+		strings.Join(quotedCols, ", "),
+		quoteIdent(db.Type, table),
 	)
 
 	rows, err := db.DB.Query(query)
@@ -235,9 +245,19 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM `%s` LIMIT %d OFFSET %d",
-		strings.Join(columns, ", "),
-		table,
+	template, ok := SelectRowsPaginatedQuery[db.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+	}
+
+	query := fmt.Sprintf(template,
+		strings.Join(quotedCols, ", "),
+		quoteIdent(db.Type, table),
 		limit,
 		offset,
 	)
@@ -267,10 +287,21 @@ func (db *Database) GetPrimaryKey(table string) string {
 }
 
 func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkVal string) ([]string, error) {
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		strings.Join(columns, ", "),
-		table,
-		pkCol,
+	template, ok := SelectRowByPKQuery[db.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+	}
+
+	query := fmt.Sprintf(template,
+		strings.Join(quotedCols, ", "),
+		quoteIdent(db.Type, table),
+		quoteIdent(db.Type, pkCol),
+		Placeholder(db.Type, 1),
 	)
 
 	rows, err := db.DB.Query(query, pkVal)
@@ -290,7 +321,15 @@ func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkV
 }
 
 func (db *Database) DeleteRow(table, pkCol, pkVal string) error {
-	query := fmt.Sprintf("DELETE FROM `%s` WHERE `%s` = ?", table, pkCol)
+	template, ok := DeleteQueryTemplate[db.Type]
+	if !ok {
+		return fmt.Errorf("unsupported database type for delete: %s", db.Type)
+	}
+	query := fmt.Sprintf(template,
+		quoteIdent(db.Type, table),
+		quoteIdent(db.Type, pkCol),
+		Placeholder(db.Type, 1),
+	)
 	_, err := db.DB.Exec(query, pkVal)
 	return err
 }
@@ -300,18 +339,24 @@ func (db *Database) UpdateRow(table string, columns []string, values []string, p
 		return fmt.Errorf("columns and values length mismatch")
 	}
 
+	template, ok := UpdateQueryTemplate[db.Type]
+	if !ok {
+		return fmt.Errorf("unsupported database type for update: %s", db.Type)
+	}
+
 	setClauses := make([]string, len(columns))
 	args := make([]any, len(columns)+1)
 	for i, col := range columns {
-		setClauses[i] = fmt.Sprintf("`%s` = ?", col)
+		setClauses[i] = fmt.Sprintf("%s = %s", quoteIdent(db.Type, col), Placeholder(db.Type, i+1))
 		args[i] = values[i]
 	}
 	args[len(columns)] = pkVal
 
-	query := fmt.Sprintf("UPDATE `%s` SET %s WHERE `%s` = ?",
-		table,
+	query := fmt.Sprintf(template,
+		quoteIdent(db.Type, table),
 		strings.Join(setClauses, ", "),
-		pkCol,
+		quoteIdent(db.Type, pkCol),
+		Placeholder(db.Type, len(columns)+1),
 	)
 
 	_, err := db.DB.Exec(query, args...)
