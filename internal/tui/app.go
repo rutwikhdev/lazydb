@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"lazydb/internal/db"
+	"lazydb/internal/utils"
 	"strconv"
 	"strings"
 
@@ -24,6 +25,7 @@ const (
 	screenRows
 	screenDetail
 	screenUpdate
+	screenDelete
 )
 
 const maxColWidth = 40
@@ -64,8 +66,9 @@ type Model struct {
 	// Update state
 	updateInputs  []textinput.Model
 	updateFocused int
-	updatePKIdx   int
+	pkIdx         int
 	confirmUpdate bool
+	confirmDelete bool
 	updatePKVal   string
 }
 
@@ -482,11 +485,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.updateInputs = make([]textinput.Model, len(m.rowColumns))
-				m.updatePKIdx = -1
+				m.pkIdx = -1
 				firstEditable := -1
 				for i, col := range m.rowColumns {
 					if col == m.primaryKeyCol {
-						m.updatePKIdx = i
+						m.pkIdx = i
 					}
 					ti := textinput.New()
 					ti.Prompt = col + ": "
@@ -507,6 +510,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.confirmUpdate = false
 				m.push(screenUpdate)
+				m.errMsg = ""
+				return m, nil
+			case "D":
+				if m.primaryKeyCol == "" {
+					m.errMsg = "No primary key found for this table"
+					return m, nil
+				}
+				selected := m.rowTable.HighlightedRow()
+				if selected.Data == nil {
+					return m, nil
+				}
+				pkVal, ok := selected.Data[m.primaryKeyCol]
+				if !ok {
+					return m, nil
+				}
+				m.updatePKVal = fmt.Sprintf("%v", pkVal)
+				m.confirmDelete = true
+				m.push(screenDelete)
 				m.errMsg = ""
 				return m, nil
 			}
@@ -564,7 +585,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.updateFocused >= len(m.updateInputs) {
 						m.updateFocused = 0
 					}
-					if m.updateFocused != m.updatePKIdx {
+					if m.updateFocused != m.pkIdx {
 						break
 					}
 				}
@@ -577,7 +598,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.updateFocused < 0 {
 						m.updateFocused = len(m.updateInputs) - 1
 					}
-					if m.updateFocused != m.updatePKIdx {
+					if m.updateFocused != m.pkIdx {
 						break
 					}
 				}
@@ -589,6 +610,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
+		return m, cmd
+	case screenDelete:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if m.confirmDelete {
+				switch msg.String() {
+				case "y":
+					logger := utils.NewLogger()
+					logger.Println("Deleting.........")
+					err := m.dbConn.DeleteRow(m.rowTableName, m.primaryKeyCol, m.updatePKVal)
+					if err != nil {
+						m.errMsg = fmt.Sprintf("Failed to delete: %v", err)
+					} else {
+						m.errMsg = ""
+						m.fetchRowWindow(m.rowOffset)
+					}
+					m.confirmDelete = false
+					m.pop()
+					return m, nil
+				case "n", "esc":
+					m.confirmDelete = false
+					m.pop()
+					return m, nil
+				}
+				return m, nil
+			}
+			switch msg.String() {
+			case "esc":
+				m.pop()
+				return m, nil
+			case "enter":
+				m.confirmDelete = true
+				return m, nil
+			}
+		}
 		return m, cmd
 	}
 
@@ -617,6 +673,19 @@ func (m Model) View() string {
 		content = m.rowTable.View()
 	case screenDetail:
 		content = m.detailTable.View()
+	case screenDelete:
+		bg := m.rowTable.View()
+		var formContent strings.Builder
+		if m.confirmDelete {
+			formContent.WriteString("Confirm delete? (y/n)\n")
+		}
+		modalStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("13")).
+			Padding(1, 2).
+			Width(60)
+		modal := modalStyle.Render(formContent.String())
+		content = overlay(bg, modal, m.termWidth, m.termHeight)
 	case screenUpdate:
 		bg := m.rowTable.View()
 		var formContent strings.Builder
@@ -624,7 +693,7 @@ func (m Model) View() string {
 			formContent.WriteString("Confirm update? (y/n)\n")
 		} else {
 			for i, input := range m.updateInputs {
-				if i == m.updatePKIdx {
+				if i == m.pkIdx {
 					formContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.rowColumns[i] + ": " + input.Value()))
 				} else {
 					formContent.WriteString(input.View())
@@ -669,6 +738,12 @@ func (m Model) View() string {
 				statusBar = "y: confirm • n/esc: cancel"
 			} else {
 				statusBar = "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
+			}
+		case screenDelete:
+			if m.confirmDelete {
+				statusBar = "y: confirm • n/esc: cancel"
+			} else {
+				statusBar = "Enter: confirm delete • Esc: cancel"
 			}
 		}
 	}

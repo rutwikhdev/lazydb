@@ -289,6 +289,12 @@ func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkV
 	return result[0], nil
 }
 
+func (db *Database) DeleteRow(table, pkCol, pkVal string) error {
+	query := fmt.Sprintf("DELETE FROM `%s` WHERE `%s` = ?", table, pkCol)
+	_, err := db.DB.Exec(query, pkVal)
+	return err
+}
+
 func (db *Database) UpdateRow(table string, columns []string, values []string, pkCol string, pkVal string) error {
 	if len(columns) != len(values) {
 		return fmt.Errorf("columns and values length mismatch")
