@@ -638,6 +638,10 @@ func (m Model) View() string {
 	case screenDelete:
 		bg := m.rowTable.View()
 		var formContent strings.Builder
+
+		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Deleting Record`)
+		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
+
 		if m.confirmDelete {
 			formContent.WriteString("Confirm delete? (y/n)\n")
 		}
@@ -651,6 +655,10 @@ func (m Model) View() string {
 	case screenUpdate:
 		bg := m.rowTable.View()
 		var formContent strings.Builder
+
+		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Updating Record`)
+		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
+
 		if m.confirmUpdate {
 			formContent.WriteString("Confirm update? (y/n)\n")
 		} else {
@@ -663,7 +671,7 @@ func (m Model) View() string {
 				formContent.WriteByte('\n')
 			}
 			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Hit "Enter" when done`)
-			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).Render(hint))
+			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint))
 		}
 		modalStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
