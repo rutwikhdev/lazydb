@@ -454,6 +454,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					ti := textinput.New()
 					ti.Prompt = col + ": "
+					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 					ti.Width = 50
 					if i < len(row) {
 						ti.SetValue(row[i])

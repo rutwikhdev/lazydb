@@ -79,7 +79,7 @@ func makeDetailTable(row []string, columns []string, width, pageSize int) btable
 	colWidth := width / 4
 
 	colCol := btable.NewColumn("column", "Column", colWidth).
-		WithStyle(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")))
+		WithStyle(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245")))
 	valCol := btable.NewFlexColumn("value", "Value", 1)
 
 	rows := make([]btable.Row, len(columns))
