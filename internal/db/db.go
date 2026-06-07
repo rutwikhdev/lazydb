@@ -43,8 +43,8 @@ func BuildDSN(info ConnectionInfo) (string, error) {
 		if dbName == "" {
 			dbName = POSTGRES_INITIAL_DB
 		}
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable pgbouncer=%t",
-			info.Host, info.Port, info.Username, info.Password, dbName, true), nil
+		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			info.Host, info.Port, info.Username, info.Password, dbName), nil
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", info.Type)
 	}
