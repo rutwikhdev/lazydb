@@ -363,6 +363,59 @@ func (db *Database) UpdateRow(table string, columns []string, values []string, p
 	return err
 }
 
+func (db *Database) GetAutoIncrementColumns(table string) ([]string, error) {
+	query, ok := FetchAutoIncrementQuery[db.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for auto-increment check: %s", db.Type)
+	}
+	query = fmt.Sprintf(query, table)
+
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		cols = append(cols, name)
+	}
+	return cols, nil
+}
+
+func (db *Database) InsertRow(table string, columns []string, values []string) error {
+	if len(columns) != len(values) {
+		return fmt.Errorf("columns and values length mismatch")
+	}
+
+	template, ok := InsertQueryTemplate[db.Type]
+	if !ok {
+		return fmt.Errorf("unsupported database type for insert: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	placeholders := make([]string, len(columns))
+	args := make([]any, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+		placeholders[i] = Placeholder(db.Type, i+1)
+		args[i] = values[i]
+	}
+
+	query := fmt.Sprintf(template,
+		quoteIdent(db.Type, table),
+		strings.Join(quotedCols, ", "),
+		strings.Join(placeholders, ", "),
+	)
+
+	_, err := db.DB.Exec(query, args...)
+	return err
+}
+
 func scanRows(rows *sql.Rows, columns []string) ([][]string, error) {
 	var results [][]string
 
