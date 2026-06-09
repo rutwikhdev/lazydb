@@ -25,6 +25,7 @@ const (
 	screenDetail
 	screenUpdate
 	screenDelete
+	screenInsert
 )
 
 const maxColWidth = 40
@@ -62,6 +63,9 @@ type Model struct {
 	confirmUpdate bool
 	confirmDelete bool
 	updatePKVal   string
+	insertMode    bool
+	insertColumns []string
+	autoIncrementCols []string
 }
 
 func NewModel() *Model {
@@ -492,6 +496,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.push(screenDelete)
 				m.errMsg = ""
 				return m, nil
+			case "I":
+				var insertCols []string
+				for _, col := range m.rowColumns {
+					isAutoInc := false
+					for _, ac := range m.autoIncrementCols {
+						if ac == col {
+							isAutoInc = true
+							break
+						}
+					}
+					if !isAutoInc {
+						insertCols = append(insertCols, col)
+					}
+				}
+				m.insertColumns = insertCols
+				m.updateInputs = make([]textinput.Model, len(insertCols))
+				for i, col := range insertCols {
+					ti := textinput.New()
+					ti.Prompt = col + ": "
+					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+					ti.Width = 50
+					m.updateInputs[i] = ti
+				}
+				if len(m.updateInputs) > 0 {
+					m.updateInputs[0].Focus()
+				}
+				m.updateFocused = 0
+				m.insertMode = true
+				m.confirmUpdate = false
+				m.push(screenInsert)
+				m.errMsg = ""
+				return m, nil
 			}
 		}
 		m.rowTable, cmd = m.rowTable.Update(msg)
@@ -608,6 +644,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
+	case screenInsert:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if m.confirmUpdate {
+				switch msg.String() {
+				case "y":
+					values := make([]string, len(m.updateInputs))
+					for i, ti := range m.updateInputs {
+						values[i] = ti.Value()
+					}
+					err := m.dbConn.InsertRow(m.rowTableName, m.insertColumns, values)
+					if err != nil {
+						m.errMsg = fmt.Sprintf("Failed to insert: %v", err)
+					} else {
+						m.errMsg = ""
+						m.fetchRowWindow(m.rowOffset)
+					}
+					m.insertMode = false
+					m.pop()
+					return m, nil
+				case "n", "esc":
+					m.confirmUpdate = false
+					return m, nil
+				}
+				return m, nil
+			}
+			switch msg.String() {
+			case "esc":
+				m.insertMode = false
+				m.pop()
+				return m, nil
+			case "tab":
+				m.updateInputs[m.updateFocused].Blur()
+				m.updateFocused++
+				if m.updateFocused >= len(m.updateInputs) {
+					m.updateFocused = 0
+				}
+				m.updateInputs[m.updateFocused].Focus()
+				return m, nil
+			case "shift+tab":
+				m.updateInputs[m.updateFocused].Blur()
+				m.updateFocused--
+				if m.updateFocused < 0 {
+					m.updateFocused = len(m.updateInputs) - 1
+				}
+				m.updateInputs[m.updateFocused].Focus()
+				return m, nil
+			case "enter":
+				allFilled := true
+				for _, ti := range m.updateInputs {
+					if strings.TrimSpace(ti.Value()) == "" {
+						allFilled = false
+						break
+					}
+				}
+				if !allFilled {
+					m.errMsg = "All fields are required"
+					return m, nil
+				}
+				m.errMsg = ""
+				m.confirmUpdate = true
+				return m, nil
+			}
+		}
+		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -680,6 +782,30 @@ func (m Model) View() string {
 			Width(60)
 		modal := modalStyle.Render(formContent.String())
 		content = overlay(bg, modal, m.termWidth, m.termHeight)
+	case screenInsert:
+		bg := m.rowTable.View()
+		var formContent strings.Builder
+
+		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Inserting Record`)
+		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
+
+		if m.confirmUpdate {
+			formContent.WriteString("Confirm insert? (y/n)\n")
+		} else {
+			for _, input := range m.updateInputs {
+				formContent.WriteString(input.View())
+				formContent.WriteByte('\n')
+			}
+			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`All fields required. Hit "Enter" when done`)
+			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint))
+		}
+		modalStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("13")).
+			Padding(1, 2).
+			Width(60)
+		modal := modalStyle.Render(formContent.String())
+		content = overlay(bg, modal, m.termWidth, m.termHeight)
 	}
 
 	var statusBar string
@@ -714,6 +840,12 @@ func (m Model) View() string {
 				statusBar = "y: confirm • n/esc: cancel"
 			} else {
 				statusBar = "Enter: confirm delete • Esc: cancel"
+			}
+		case screenInsert:
+			if m.confirmUpdate {
+				statusBar = "y: confirm • n/esc: cancel"
+			} else {
+				statusBar = "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
 			}
 		}
 	}

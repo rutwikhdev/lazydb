@@ -119,6 +119,7 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) error {
 	m.termWidth = width
 	m.pageSize = pageSize
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
+	m.autoIncrementCols, _ = m.dbConn.GetAutoIncrementColumns(tableName)
 	m.rowOffset = 0
 	m.rowLimit = 500
 	m.rowHasMore = true

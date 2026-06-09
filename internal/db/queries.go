@@ -44,6 +44,18 @@ var DeleteQueryTemplate = map[string]string{
 	DB_POSTGRES: `DELETE FROM %s WHERE %s = %s`,
 }
 
+var FetchAutoIncrementQuery = map[string]string{
+	DB_SQLITE:   "SELECT name FROM pragma_table_info('%s') WHERE pk > 0 AND UPPER(type) = 'INTEGER';",
+	DB_MYSQL:    "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '%s' AND extra LIKE '%%auto_increment%%';",
+	DB_POSTGRES: "SELECT column_name FROM information_schema.columns WHERE table_name = '%s' AND table_schema = 'public' AND (column_default LIKE 'nextval(%%' OR is_identity = 'YES');",
+}
+
+var InsertQueryTemplate = map[string]string{
+	DB_SQLITE:   `INSERT INTO %s (%s) VALUES (%s)`,
+	DB_MYSQL:    `INSERT INTO %s (%s) VALUES (%s)`,
+	DB_POSTGRES: `INSERT INTO %s (%s) VALUES (%s)`,
+}
+
 var UpdateQueryTemplate = map[string]string{
 	DB_SQLITE:   `UPDATE %s SET %s WHERE %s = %s`,
 	DB_MYSQL:    `UPDATE %s SET %s WHERE %s = %s`,
