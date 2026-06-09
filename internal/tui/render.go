@@ -7,7 +7,41 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	btable "github.com/evertras/bubble-table/table"
 )
+
+var normalBorder = btable.Border{
+	Top:            "─",
+	Left:           "│",
+	Right:          "│",
+	Bottom:         "─",
+	TopRight:       "┐",
+	TopLeft:        "┌",
+	BottomRight:    "┘",
+	BottomLeft:     "└",
+	TopJunction:    "┬",
+	LeftJunction:   "├",
+	RightJunction:  "┤",
+	BottomJunction: "┴",
+	InnerJunction:  "┼",
+	InnerDivider:   "│",
+}
+
+func renderModal(title, content string, termWidth, termHeight int, bg string) string {
+	var formContent strings.Builder
+
+	styledTitle := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(title)
+	formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(styledTitle))
+	formContent.WriteString(content)
+
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("13")).
+		Padding(1, 2).
+		Width(60)
+	modal := modalStyle.Render(formContent.String())
+	return overlay(bg, modal, termWidth, termHeight)
+}
 
 func overlay(bg, fg string, width, height int) string {
 	bgLines := strings.Split(bg, "\n")
@@ -52,22 +86,6 @@ func overlay(bg, fg string, width, height int) string {
 	}
 
 	return strings.Join(bgLines, "\n")
-}
-
-func renderModal(title, content string, termWidth, termHeight int, bg string) string {
-	var formContent strings.Builder
-
-	styledTitle := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(title)
-	formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(styledTitle))
-	formContent.WriteString(content)
-
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("13")).
-		Padding(1, 2).
-		Width(60)
-	modal := modalStyle.Render(formContent.String())
-	return overlay(bg, modal, termWidth, termHeight)
 }
 
 func buildFormInputs(inputs []textinput.Model, pkIdx int, columns []string) string {
