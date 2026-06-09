@@ -1,9 +1,9 @@
 package db
 
 const (
-	DB_SQLITE   = "sqlite"
-	DB_MYSQL    = "mysql"
-	DB_POSTGRES = "postgres"
+	SQLITE   = "sqlite"
+	MYSQL    = "mysql"
+	POSTGRES = "postgres"
 
 	DEFAULT_HOST = "localhost"
 
@@ -14,13 +14,13 @@ const (
 )
 
 var DBDisplayNames = map[string]string{
-	DB_SQLITE:   "SQLite",
-	DB_MYSQL:    "MySQL",
-	DB_POSTGRES: "PostgreSQL",
+	SQLITE:   "SQLite",
+	MYSQL:    "MySQL",
+	POSTGRES: "PostgreSQL",
 }
 
 var SupportedDBs = []string{
-	DB_SQLITE,
-	DB_MYSQL,
-	DB_POSTGRES,
+	SQLITE,
+	MYSQL,
+	POSTGRES,
 }

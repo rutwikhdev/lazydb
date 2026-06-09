@@ -160,7 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.selectedDBType = fmt.Sprintf("%v", val)
-				if m.selectedDBType == db.DB_SQLITE {
+				if m.selectedDBType == db.SQLITE {
 					m.push(screenSQLitePath)
 					m.sqlitePath.Focus()
 				} else {
@@ -172,9 +172,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.connInputs[0].Focus()
 					// Prefill port based on DB type
 					switch m.selectedDBType {
-					case db.DB_MYSQL:
+					case db.MYSQL:
 						m.connInputs[1].SetValue(strconv.Itoa(db.MYSQL_DEFAULT_PORT))
-					case db.DB_POSTGRES:
+					case db.POSTGRES:
 						m.connInputs[1].SetValue(strconv.Itoa(db.POSTGRES_DEFAULT_PORT))
 					}
 				}
@@ -198,7 +198,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				info := db.ConnectionInfo{
-					Type: db.DB_SQLITE,
+					Type: db.SQLITE,
 					Path: path,
 				}
 				database, err := db.NewDBFromInfo(info)
@@ -257,9 +257,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				port, err := strconv.Atoi(portStr)
 				if err != nil || portStr == "" {
 					switch m.selectedDBType {
-					case db.DB_MYSQL:
+					case db.MYSQL:
 						port = db.MYSQL_DEFAULT_PORT
-					case db.DB_POSTGRES:
+					case db.POSTGRES:
 						port = db.POSTGRES_DEFAULT_PORT
 					}
 				}

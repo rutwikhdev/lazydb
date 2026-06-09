@@ -29,21 +29,29 @@ type Database struct {
 
 func BuildDSN(info ConnectionInfo) (string, error) {
 	switch info.Type {
-	case DB_SQLITE:
+	case SQLITE:
 		return info.Path, nil
-	case DB_MYSQL:
+	case MYSQL:
 		dbName := info.Database
 		if dbName == "" {
 			dbName = ""
 		}
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
+		template, ok := GetQuery(MYSQL, QConnString)
+		if !ok {
+			return "", fmt.Errorf("connection string template not found for mysql")
+		}
+		return fmt.Sprintf(template,
 			info.Username, info.Password, info.Host, info.Port, dbName), nil
-	case DB_POSTGRES:
+	case POSTGRES:
 		dbName := info.Database
 		if dbName == "" {
 			dbName = POSTGRES_INITIAL_DB
 		}
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		template, ok := GetQuery(POSTGRES, QConnString)
+		if !ok {
+			return "", fmt.Errorf("connection string template not found for postgres")
+		}
+		return fmt.Sprintf(template,
 			info.Host, info.Port, info.Username, info.Password, dbName), nil
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", info.Type)
@@ -70,7 +78,7 @@ func NewDBFromInfo(info ConnectionInfo) (*Database, error) {
 }
 
 func (db *Database) FetchTables() ([]string, error) {
-	query, ok := FetchTablesQuery[db.Type]
+	query, ok := GetQuery(db.Type, QFetchTables)
 	if !ok || len(query) == 0 {
 		return nil, fmt.Errorf("database type %s not supported for listing tables", db.Type)
 	}
@@ -99,7 +107,7 @@ func (db *Database) FetchTables() ([]string, error) {
 }
 
 func (db *Database) FetchDatabases() ([]string, error) {
-	query, ok := FetchDatabasesQuery[db.Type]
+	query, ok := GetQuery(db.Type, QFetchDatabases)
 	if !ok || len(query) == 0 {
 		return nil, fmt.Errorf("database type %s does not support listing databases", db.Type)
 	}
@@ -128,14 +136,14 @@ func (db *Database) FetchDatabases() ([]string, error) {
 
 func (db *Database) SelectDatabase(name string) error {
 	switch db.Type {
-	case DB_MYSQL:
+	case MYSQL:
 		_, err := db.DB.Exec("USE " + name)
 		if err != nil {
 			return err
 		}
 		db.Conn.Database = name
 		return nil
-	case DB_POSTGRES:
+	case POSTGRES:
 		db.Conn.Database = name
 		dsn, err := BuildDSN(db.Conn)
 		if err != nil {
@@ -152,8 +160,7 @@ func (db *Database) SelectDatabase(name string) error {
 		db.DB.Close()
 		db.DB = newDB
 		return nil
-	case DB_SQLITE:
-		// SQLite is file-based; no-op
+	case SQLITE:
 		return nil
 	default:
 		return fmt.Errorf("unsupported database type: %s", db.Type)
@@ -161,17 +168,11 @@ func (db *Database) SelectDatabase(name string) error {
 }
 
 func (db *Database) GetColumns(table string) ([]string, error) {
-	var query string
-	switch db.Type {
-	case DB_SQLITE:
-		query = fmt.Sprintf("PRAGMA table_info(%s);", table)
-	case DB_MYSQL:
-		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`;", table)
-	case DB_POSTGRES:
-		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s' AND table_schema = 'public' ORDER BY ordinal_position;", table)
-	default:
+	query, ok := GetQuery(db.Type, QGetColumns)
+	if !ok {
 		return nil, fmt.Errorf("unsupported database type for columns: %s", db.Type)
 	}
+	query = fmt.Sprintf(query, table)
 
 	rows, err := db.DB.Query(query)
 	if err != nil {
@@ -184,7 +185,7 @@ func (db *Database) GetColumns(table string) ([]string, error) {
 	for rows.Next() {
 		var name string
 		switch db.Type {
-		case DB_SQLITE:
+		case SQLITE:
 			var cid, notnull, pk int
 			var ctype string
 			var dfltValue any
@@ -192,14 +193,14 @@ func (db *Database) GetColumns(table string) ([]string, error) {
 			if err != nil {
 				return nil, fmt.Errorf("could not fetch rows from sqlite, %s", err.Error())
 			}
-		case DB_MYSQL:
+		case MYSQL:
 			var fieldType, null, key, extra string
 			var defaultValue any
 			err := rows.Scan(&name, &fieldType, &null, &key, &defaultValue, &extra)
 			if err != nil {
 				return nil, fmt.Errorf("could not fetch rows from mysql, %s", err.Error())
 			}
-		case DB_POSTGRES:
+		case POSTGRES:
 			err := rows.Scan(&name)
 			if err != nil {
 				return nil, fmt.Errorf("could not fetch rows from postgres, %s", err.Error())
@@ -216,7 +217,7 @@ func (db *Database) GetRows(table string, columns []string) ([][]string, error) 
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	template, ok := SelectRowsQuery[db.Type]
+	template, ok := GetQuery(db.Type, QSelectRows)
 	if !ok {
 		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
 	}
@@ -245,7 +246,7 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 		return nil, fmt.Errorf("no columns provided")
 	}
 
-	template, ok := SelectRowsPaginatedQuery[db.Type]
+	template, ok := GetQuery(db.Type, QSelectRowsPaginated)
 	if !ok {
 		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
 	}
@@ -272,7 +273,7 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 }
 
 func (db *Database) GetPrimaryKey(table string) string {
-	query, ok := FetchPrimaryKeyQuery[db.Type]
+	query, ok := GetQuery(db.Type, QFetchPrimaryKey)
 	if !ok {
 		return ""
 	}
@@ -287,7 +288,7 @@ func (db *Database) GetPrimaryKey(table string) string {
 }
 
 func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkVal string) ([]string, error) {
-	template, ok := SelectRowByPKQuery[db.Type]
+	template, ok := GetQuery(db.Type, QSelectRowByPK)
 	if !ok {
 		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
 	}
@@ -321,7 +322,7 @@ func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkV
 }
 
 func (db *Database) DeleteRow(table, pkCol, pkVal string) error {
-	template, ok := DeleteQueryTemplate[db.Type]
+	template, ok := GetQuery(db.Type, QDelete)
 	if !ok {
 		return fmt.Errorf("unsupported database type for delete: %s", db.Type)
 	}
@@ -339,7 +340,7 @@ func (db *Database) UpdateRow(table string, columns []string, values []string, p
 		return fmt.Errorf("columns and values length mismatch")
 	}
 
-	template, ok := UpdateQueryTemplate[db.Type]
+	template, ok := GetQuery(db.Type, QUpdate)
 	if !ok {
 		return fmt.Errorf("unsupported database type for update: %s", db.Type)
 	}
@@ -364,7 +365,7 @@ func (db *Database) UpdateRow(table string, columns []string, values []string, p
 }
 
 func (db *Database) GetAutoIncrementColumns(table string) ([]string, error) {
-	query, ok := FetchAutoIncrementQuery[db.Type]
+	query, ok := GetQuery(db.Type, QFetchAutoIncrement)
 	if !ok {
 		return nil, fmt.Errorf("unsupported database type for auto-increment check: %s", db.Type)
 	}
@@ -392,7 +393,7 @@ func (db *Database) InsertRow(table string, columns []string, values []string) e
 		return fmt.Errorf("columns and values length mismatch")
 	}
 
-	template, ok := InsertQueryTemplate[db.Type]
+	template, ok := GetQuery(db.Type, QInsert)
 	if !ok {
 		return fmt.Errorf("unsupported database type for insert: %s", db.Type)
 	}
