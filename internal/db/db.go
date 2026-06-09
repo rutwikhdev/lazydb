@@ -168,7 +168,7 @@ func (db *Database) GetColumns(table string) ([]string, error) {
 	case DB_MYSQL:
 		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`;", table)
 	case DB_POSTGRES:
-		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s';", table)
+		query = fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_name = '%s' AND table_schema = 'public' ORDER BY ordinal_position;", table)
 	default:
 		return nil, fmt.Errorf("unsupported database type for columns: %s", db.Type)
 	}
