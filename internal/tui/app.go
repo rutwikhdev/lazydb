@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lazydb/internal/db"
 	"lazydb/internal/utils"
+	"log"
 	"strconv"
 	"strings"
 
@@ -57,15 +58,17 @@ type Model struct {
 	detailTable   btable.Model
 
 	// Update state
-	updateInputs  []textinput.Model
-	updateFocused int
-	pkIdx         int
-	confirmUpdate bool
-	confirmDelete bool
-	updatePKVal   string
-	insertMode    bool
-	insertColumns []string
+	updateInputs      []textinput.Model
+	updateFocused     int
+	pkIdx             int
+	confirmUpdate     bool
+	confirmDelete     bool
+	updatePKVal       string
+	insertMode        bool
+	insertColumns     []string
 	autoIncrementCols []string
+
+	logger *log.Logger
 }
 
 func NewModel() *Model {
@@ -100,6 +103,7 @@ func NewModel() *Model {
 		termWidth:    120,
 		termHeight:   60,
 		pageSize:     dynamicPageSize(60),
+		logger:       utils.NewLogger(),
 	}
 	return m
 }
@@ -160,7 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.selectedDBType = fmt.Sprintf("%v", val)
-				if m.selectedDBType == db.DB_SQLITE {
+				if m.selectedDBType == db.SQLITE {
 					m.push(screenSQLitePath)
 					m.sqlitePath.Focus()
 				} else {
@@ -172,9 +176,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.connInputs[0].Focus()
 					// Prefill port based on DB type
 					switch m.selectedDBType {
-					case db.DB_MYSQL:
+					case db.MYSQL:
 						m.connInputs[1].SetValue(strconv.Itoa(db.MYSQL_DEFAULT_PORT))
-					case db.DB_POSTGRES:
+					case db.POSTGRES:
 						m.connInputs[1].SetValue(strconv.Itoa(db.POSTGRES_DEFAULT_PORT))
 					}
 				}
@@ -198,7 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				info := db.ConnectionInfo{
-					Type: db.DB_SQLITE,
+					Type: db.SQLITE,
 					Path: path,
 				}
 				database, err := db.NewDBFromInfo(info)
@@ -231,18 +235,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "tab":
 				m.connInputs[m.focusedInput].Blur()
-				m.focusedInput++
-				if m.focusedInput >= len(m.connInputs) {
-					m.focusedInput = 0
-				}
+				m.focusedInput = cycleFocus(len(m.connInputs), m.focusedInput, 1, -1)
 				m.connInputs[m.focusedInput].Focus()
 				return m, nil
 			case "shift+tab":
 				m.connInputs[m.focusedInput].Blur()
-				m.focusedInput--
-				if m.focusedInput < 0 {
-					m.focusedInput = len(m.connInputs) - 1
-				}
+				m.focusedInput = cycleFocus(len(m.connInputs), m.focusedInput, -1, -1)
 				m.connInputs[m.focusedInput].Focus()
 				return m, nil
 			case "enter":
@@ -257,9 +255,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				port, err := strconv.Atoi(portStr)
 				if err != nil || portStr == "" {
 					switch m.selectedDBType {
-					case db.DB_MYSQL:
+					case db.MYSQL:
 						port = db.MYSQL_DEFAULT_PORT
-					case db.DB_POSTGRES:
+					case db.POSTGRES:
 						port = db.POSTGRES_DEFAULT_PORT
 					}
 				}
@@ -409,19 +407,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			case "enter":
-				if m.primaryKeyCol == "" {
-					m.errMsg = "No primary key found for this table"
-					return m, nil
-				}
-				selected := m.rowTable.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-				pkVal, ok := selected.Data[m.primaryKeyCol]
+				pkVal, ok := m.selectedPKValue()
 				if !ok {
+					if m.primaryKeyCol == "" {
+						m.errMsg = "No primary key found for this table"
+					}
 					return m, nil
 				}
-				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, fmt.Sprintf("%v", pkVal))
+				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, pkVal)
 				if err != nil {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
 					return m, nil
@@ -431,19 +424,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errMsg = ""
 				return m, nil
 			case "U":
-				if m.primaryKeyCol == "" {
-					m.errMsg = "No primary key found for this table"
-					return m, nil
-				}
-				selected := m.rowTable.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-				pkVal, ok := selected.Data[m.primaryKeyCol]
+				pkVal, ok := m.selectedPKValue()
 				if !ok {
+					if m.primaryKeyCol == "" {
+						m.errMsg = "No primary key found for this table"
+					}
 					return m, nil
 				}
-				m.updatePKVal = fmt.Sprintf("%v", pkVal)
+				m.updatePKVal = pkVal
 				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, m.updatePKVal)
 				if err != nil {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
@@ -479,19 +467,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errMsg = ""
 				return m, nil
 			case "D":
-				if m.primaryKeyCol == "" {
-					m.errMsg = "No primary key found for this table"
-					return m, nil
-				}
-				selected := m.rowTable.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-				pkVal, ok := selected.Data[m.primaryKeyCol]
+				pkVal, ok := m.selectedPKValue()
 				if !ok {
+					if m.primaryKeyCol == "" {
+						m.errMsg = "No primary key found for this table"
+					}
 					return m, nil
 				}
-				m.updatePKVal = fmt.Sprintf("%v", pkVal)
+				m.updatePKVal = pkVal
 				m.confirmDelete = true
 				m.push(screenDelete)
 				m.errMsg = ""
@@ -578,28 +561,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "tab":
 				m.updateInputs[m.updateFocused].Blur()
-				for {
-					m.updateFocused++
-					if m.updateFocused >= len(m.updateInputs) {
-						m.updateFocused = 0
-					}
-					if m.updateFocused != m.pkIdx {
-						break
-					}
-				}
+				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, m.pkIdx)
 				m.updateInputs[m.updateFocused].Focus()
 				return m, nil
 			case "shift+tab":
 				m.updateInputs[m.updateFocused].Blur()
-				for {
-					m.updateFocused--
-					if m.updateFocused < 0 {
-						m.updateFocused = len(m.updateInputs) - 1
-					}
-					if m.updateFocused != m.pkIdx {
-						break
-					}
-				}
+				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, m.pkIdx)
 				m.updateInputs[m.updateFocused].Focus()
 				return m, nil
 			case "enter":
@@ -615,8 +582,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.confirmDelete {
 				switch msg.String() {
 				case "y":
-					logger := utils.NewLogger()
-					logger.Println("Deleting.........")
+					m.logger.Println("Deleting row:", m.updatePKVal)
 					err := m.dbConn.DeleteRow(m.rowTableName, m.primaryKeyCol, m.updatePKVal)
 					if err != nil {
 						m.errMsg = fmt.Sprintf("Failed to delete: %v", err)
@@ -677,18 +643,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "tab":
 				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused++
-				if m.updateFocused >= len(m.updateInputs) {
-					m.updateFocused = 0
-				}
+				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, -1)
 				m.updateInputs[m.updateFocused].Focus()
 				return m, nil
 			case "shift+tab":
 				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused--
-				if m.updateFocused < 0 {
-					m.updateFocused = len(m.updateInputs) - 1
-				}
+				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, -1)
 				m.updateInputs[m.updateFocused].Focus()
 				return m, nil
 			case "enter":
@@ -739,119 +699,38 @@ func (m Model) View() string {
 		content = m.detailTable.View()
 	case screenDelete:
 		bg := m.rowTable.View()
-		var formContent strings.Builder
-
-		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Deleting Record`)
-		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
-
+		var modalContent string
 		if m.confirmDelete {
-			formContent.WriteString("Confirm delete? (y/n)\n")
+			modalContent = "Confirm delete? (y/n)\n"
 		}
-		modalStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("13")).
-			Padding(1, 2).
-			Width(60)
-		modal := modalStyle.Render(formContent.String())
-		content = overlay(bg, modal, m.termWidth, m.termHeight)
+		content = renderModal("Deleting Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenUpdate:
 		bg := m.rowTable.View()
-		var formContent strings.Builder
-
-		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Updating Record`)
-		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
-
+		var modalContent string
 		if m.confirmUpdate {
-			formContent.WriteString("Confirm update? (y/n)\n")
+			modalContent = "Confirm update? (y/n)\n"
 		} else {
-			for i, input := range m.updateInputs {
-				if i == m.pkIdx {
-					formContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.rowColumns[i] + ": " + input.Value()))
-				} else {
-					formContent.WriteString(input.View())
-				}
-				formContent.WriteByte('\n')
-			}
+			modalContent = buildFormInputs(m.updateInputs, m.pkIdx, m.rowColumns)
 			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Hit "Enter" when done`)
-			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint))
+			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
 		}
-		modalStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("13")).
-			Padding(1, 2).
-			Width(60)
-		modal := modalStyle.Render(formContent.String())
-		content = overlay(bg, modal, m.termWidth, m.termHeight)
+		content = renderModal("Updating Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenInsert:
 		bg := m.rowTable.View()
-		var formContent strings.Builder
-
-		title := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(`Inserting Record`)
-		formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(title))
-
+		var modalContent string
 		if m.confirmUpdate {
-			formContent.WriteString("Confirm insert? (y/n)\n")
+			modalContent = "Confirm insert? (y/n)\n"
 		} else {
-			for _, input := range m.updateInputs {
-				formContent.WriteString(input.View())
-				formContent.WriteByte('\n')
-			}
+			modalContent = buildFormInputs(m.updateInputs, -1, nil)
 			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`All fields required. Hit "Enter" when done`)
-			formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint))
+			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
 		}
-		modalStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("13")).
-			Padding(1, 2).
-			Width(60)
-		modal := modalStyle.Render(formContent.String())
-		content = overlay(bg, modal, m.termWidth, m.termHeight)
+		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
 	}
 
-	var statusBar string
-	if m.errMsg != "" {
-		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Error: " + m.errMsg)
-	} else {
-		switch m.currentScreen() {
-		case screenDBType:
-			statusBar = "↑↓: navigate • Enter: select • q: quit"
-		case screenSQLitePath:
-			statusBar = "Enter: connect • Esc: back"
-		case screenConnectionForm:
-			statusBar = "Tab: next field • Shift+Tab: prev field • Enter: connect • Esc: back"
-		case screenDatabases:
-			statusBar = "↑↓: navigate • Enter: select • Esc: back • q: quit"
-		case screenTables:
-			statusBar = "↑↓: navigate • Enter: open table • Esc: back • q: quit"
-		case screenRows:
-			start := m.rowOffset + 1
-			end := m.rowOffset + len(m.rowTable.GetVisibleRows())
-			statusBar = fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • Esc: back • q: quit • Rows %d-%d", start, end)
-		case screenDetail:
-			statusBar = "Esc: back • q: quit"
-		case screenUpdate:
-			if m.confirmUpdate {
-				statusBar = "y: confirm • n/esc: cancel"
-			} else {
-				statusBar = "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
-			}
-		case screenDelete:
-			if m.confirmDelete {
-				statusBar = "y: confirm • n/esc: cancel"
-			} else {
-				statusBar = "Enter: confirm delete • Esc: cancel"
-			}
-		case screenInsert:
-			if m.confirmUpdate {
-				statusBar = "y: confirm • n/esc: cancel"
-			} else {
-				statusBar = "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
-			}
-		}
-	}
-
-	if statusBar != "" {
-		return content + "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(statusBar)
+	statusText := m.statusBar()
+	if statusText != "" {
+		return content + "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(statusText)
 	}
 	return content
 }

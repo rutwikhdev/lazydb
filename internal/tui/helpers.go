@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"lazydb/internal/db"
 	"strconv"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -143,8 +142,24 @@ func (m *Model) fetchRowWindow(offset int) {
 	m.rowOffset = offset
 	m.rowHasMore = len(rows) == m.rowLimit
 
-	colWidths := make([]int, len(m.rowColumns))
+	finalWidths := computeColumnWidths(m.rowColumns, rows, m.termWidth)
+
+	columns := make([]btable.Column, len(m.rowColumns))
 	for i, name := range m.rowColumns {
+		columns[i] = btable.NewColumn(name, name, finalWidths[i])
+	}
+
+	bRows := rowsToTableData(rows, m.rowColumns)
+
+	m.rowTable = styledTable(columns, bRows).
+		WithPageSize(m.pageSize).
+		WithMaxTotalWidth(m.termWidth).
+		WithHorizontalFreezeColumnCount(1)
+}
+
+func computeColumnWidths(columns []string, rows [][]string, termWidth int) []int {
+	colWidths := make([]int, len(columns))
+	for i, name := range columns {
 		colWidths[i] = ansi.StringWidth(name)
 	}
 	for _, row := range rows {
@@ -158,7 +173,7 @@ func (m *Model) fetchRowWindow(offset int) {
 		}
 	}
 
-	finalWidths := make([]int, len(m.rowColumns))
+	finalWidths := make([]int, len(columns))
 	for i := range colWidths {
 		finalWidths[i] = colWidths[i] + 1
 	}
@@ -168,10 +183,10 @@ func (m *Model) fetchRowWindow(offset int) {
 		totalColWidth += w
 	}
 
-	if totalColWidth < m.termWidth {
+	if totalColWidth < termWidth {
 		for i := range finalWidths {
 			proportion := float64(finalWidths[i]) / float64(totalColWidth)
-			finalWidths[i] = int(proportion * float64(m.termWidth-3))
+			finalWidths[i] = int(proportion * float64(termWidth-3))
 		}
 	} else {
 		for i := range finalWidths {
@@ -179,68 +194,17 @@ func (m *Model) fetchRowWindow(offset int) {
 		}
 	}
 
-	columns := make([]btable.Column, len(m.rowColumns))
-	for i, name := range m.rowColumns {
-		columns[i] = btable.NewColumn(name, name, finalWidths[i])
-	}
+	return finalWidths
+}
 
+func rowsToTableData(rows [][]string, columns []string) []btable.Row {
 	bRows := make([]btable.Row, len(rows))
 	for i, row := range rows {
 		data := make(btable.RowData, len(row))
 		for j, val := range row {
-			data[m.rowColumns[j]] = val
+			data[columns[j]] = val
 		}
 		bRows[i] = btable.NewRow(data)
 	}
-
-	m.rowTable = styledTable(columns, bRows).
-		WithPageSize(m.pageSize).
-		WithMaxTotalWidth(m.termWidth).
-		WithHorizontalFreezeColumnCount(1)
-}
-
-// Overlay Dialog
-func overlay(bg, fg string, width, height int) string {
-	bgLines := strings.Split(bg, "\n")
-	fgLines := strings.Split(fg, "\n")
-
-	fgWidth := 0
-	for _, line := range fgLines {
-		w := ansi.StringWidth(line)
-		if w > fgWidth {
-			fgWidth = w
-		}
-	}
-	fgHeight := len(fgLines)
-
-	startX := (width - fgWidth) / 2
-	startY := (height - fgHeight) / 2
-	if startX < 0 {
-		startX = 0
-	}
-	if startY < 0 {
-		startY = 0
-	}
-
-	for len(bgLines) < startY+fgHeight {
-		bgLines = append(bgLines, "")
-	}
-
-	for i, fgLine := range fgLines {
-		bgIdx := startY + i
-		if bgIdx >= len(bgLines) {
-			break
-		}
-		bgLine := bgLines[bgIdx]
-		bgWidth := ansi.StringWidth(bgLine)
-		if bgWidth < startX {
-			bgLine = bgLine + strings.Repeat(" ", startX-bgWidth)
-		}
-		left := ansi.Cut(bgLine, 0, startX)
-		fgLineWidth := ansi.StringWidth(fgLine)
-		right := ansi.TruncateLeft(bgLine, startX+fgLineWidth, "")
-		bgLines[bgIdx] = left + fgLine + right
-	}
-
-	return strings.Join(bgLines, "\n")
+	return bRows
 }
