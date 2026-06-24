@@ -27,6 +27,7 @@ const (
 	screenUpdate
 	screenDelete
 	screenInsert
+	screenSearch
 )
 
 const maxColWidth = 40
@@ -68,6 +69,13 @@ type Model struct {
 	insertColumns     []string
 	autoIncrementCols []string
 
+	// Search state
+	filterCol     string
+	filterVal     string
+	searchColIdx  int
+	searchFocused int
+	searchInput   textinput.Model
+
 	logger *log.Logger
 }
 
@@ -94,12 +102,17 @@ func NewModel() *Model {
 	}
 	inputs[0].Focus()
 
+	si := textinput.New()
+	si.Placeholder = "Search value..."
+	si.Width = 50
+
 	m := &Model{
 		stack:        []screen{screenDBType},
 		dbTypeList:   dbTypeTable,
 		sqlitePath:   ti,
 		connInputs:   inputs,
 		focusedInput: 0,
+		searchInput:  si,
 		termWidth:    120,
 		termHeight:   60,
 		pageSize:     dynamicPageSize(60),
@@ -370,6 +383,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "b":
 				m.pop()
+				return m, nil
+			case "S":
+				m.searchColIdx = 0
+				m.searchInput.SetValue("")
+				m.searchInput.Focus()
+				m.searchFocused = 1
+				m.push(screenSearch)
+				m.errMsg = ""
+				return m, nil
+			case "c":
+				if m.filterCol != "" || m.filterVal != "" {
+					m.filterCol = ""
+					m.filterVal = ""
+					m.fetchRowWindow(0)
+				}
 				return m, nil
 			case "h":
 				m.rowTable = m.rowTable.ScrollLeft()
@@ -670,6 +698,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
 		return m, cmd
+
+	case screenSearch:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "esc":
+				m.pop()
+				return m, nil
+			case "tab":
+				m.searchInput.Blur()
+				if m.searchFocused == 1 {
+					m.searchFocused = 0
+				} else {
+					m.searchFocused = 1
+					m.searchInput.Focus()
+				}
+				return m, nil
+			case "up", "k":
+				if m.searchFocused == 0 {
+					if m.searchColIdx > 0 {
+						m.searchColIdx--
+					}
+				}
+				return m, nil
+			case "down", "j":
+				if m.searchFocused == 0 {
+					if m.searchColIdx < len(m.rowColumns)-1 {
+						m.searchColIdx++
+					}
+				}
+				return m, nil
+			case "enter":
+				val := m.searchInput.Value()
+				if val == "" {
+					m.errMsg = "Search value cannot be empty"
+					return m, nil
+				}
+				m.filterCol = m.rowColumns[m.searchColIdx]
+				m.filterVal = val
+				m.errMsg = ""
+				m.pop()
+				m.fetchRowWindow(0)
+				return m, nil
+			}
+		}
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -726,6 +801,25 @@ func (m Model) View() string {
 			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
 		}
 		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
+	case screenSearch:
+		bg := m.rowTable.View()
+		var colList strings.Builder
+		colList.WriteString("Select column:\n")
+		for i, col := range m.rowColumns {
+			if i == m.searchColIdx {
+				colList.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render("  ▸ " + col) + "\n")
+			} else {
+				colList.WriteString("    " + col + "\n")
+			}
+		}
+		searchView := m.searchInput.View()
+		if m.searchFocused == 0 {
+			searchView = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.searchInput.View())
+		}
+		modalContent := colList.String() + "\n" + searchView
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: switch focus • Enter: search`)
+		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
+		content = renderModal("Search Records", modalContent, m.termWidth, m.termHeight, bg)
 	}
 
 	statusText := m.statusBar()

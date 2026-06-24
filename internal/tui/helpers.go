@@ -119,6 +119,8 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) error {
 	m.pageSize = pageSize
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
 	m.autoIncrementCols, _ = m.dbConn.GetAutoIncrementColumns(tableName)
+	m.filterCol = ""
+	m.filterVal = ""
 	m.rowOffset = 0
 	m.rowLimit = 500
 	m.rowHasMore = true
@@ -128,7 +130,13 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) error {
 }
 
 func (m *Model) fetchRowWindow(offset int) {
-	rows, err := m.dbConn.GetRowsPaginated(m.rowTableName, m.rowColumns, offset, m.rowLimit)
+	var rows [][]string
+	var err error
+	if m.filterCol != "" && m.filterVal != "" {
+		rows, err = m.dbConn.GetRowsFiltered(m.rowTableName, m.rowColumns, m.filterCol, m.filterVal, offset, m.rowLimit)
+	} else {
+		rows, err = m.dbConn.GetRowsPaginated(m.rowTableName, m.rowColumns, offset, m.rowLimit)
+	}
 	if err != nil {
 		m.errMsg = fmt.Sprintf("Failed to fetch rows: %v", err)
 		return

@@ -81,6 +81,7 @@ func TestQueryMapHasRequiredKeys(t *testing.T) {
 		QInsert,
 		QUpdate,
 		QFetchAutoIncrement,
+		QSelectRowsFiltered,
 	}
 
 	for _, dbType := range SupportedDBs {

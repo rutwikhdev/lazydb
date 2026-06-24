@@ -272,6 +272,45 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 	return scanRows(rows, columns)
 }
 
+func (db *Database) GetRowsFiltered(table string, columns []string, filterCol, filterVal string, offset, limit int) ([][]string, error) {
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("no columns provided")
+	}
+
+	template, ok := GetQuery(db.Type, QSelectRowsFiltered)
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for filtered select: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+	}
+
+	likeOp := "LIKE"
+	if db.Type == POSTGRES {
+		likeOp = "ILIKE"
+	}
+	whereClause := fmt.Sprintf("%s %s %s", quoteIdent(db.Type, filterCol), likeOp, Placeholder(db.Type, 1))
+	pattern := "%" + filterVal + "%"
+
+	query := fmt.Sprintf(template,
+		strings.Join(quotedCols, ", "),
+		quoteIdent(db.Type, table),
+		whereClause,
+		limit,
+		offset,
+	)
+
+	rows, err := db.DB.Query(query, pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRows(rows, columns)
+}
+
 func (db *Database) GetPrimaryKey(table string) string {
 	query, ok := GetQuery(db.Type, QFetchPrimaryKey)
 	if !ok {
