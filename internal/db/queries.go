@@ -15,6 +15,7 @@ const (
 	QInsert              = "INSERT"
 	QUpdate              = "UPDATE"
 	QFetchAutoIncrement  = "FETCH_AUTO_INCREMENT"
+	QSelectRowsFiltered  = "SELECT_ROWS_FILTERED"
 )
 
 var QueryMap = map[string]map[string]string{
@@ -26,6 +27,7 @@ var QueryMap = map[string]map[string]string{
 		QGetColumns:          "PRAGMA table_info(%s);",
 		QSelectRows:          `SELECT %s FROM %s`,
 		QSelectRowsPaginated: `SELECT %s FROM %s LIMIT %d OFFSET %d`,
+		QSelectRowsFiltered:  `SELECT %s FROM %s WHERE %s LIMIT %d OFFSET %d`,
 		QSelectRowByPK:       `SELECT %s FROM %s WHERE %s = %s`,
 		QDelete:              `DELETE FROM %s WHERE %s = %s`,
 		QInsert:              `INSERT INTO %s (%s) VALUES (%s)`,
@@ -40,6 +42,7 @@ var QueryMap = map[string]map[string]string{
 		QGetColumns:          "SHOW COLUMNS FROM `%s`;",
 		QSelectRows:          `SELECT %s FROM %s`,
 		QSelectRowsPaginated: `SELECT %s FROM %s LIMIT %d OFFSET %d`,
+		QSelectRowsFiltered:  `SELECT %s FROM %s WHERE %s LIMIT %d OFFSET %d`,
 		QSelectRowByPK:       `SELECT %s FROM %s WHERE %s = %s`,
 		QDelete:              `DELETE FROM %s WHERE %s = %s`,
 		QInsert:              `INSERT INTO %s (%s) VALUES (%s)`,
@@ -54,6 +57,7 @@ var QueryMap = map[string]map[string]string{
 		QGetColumns:          "SELECT column_name FROM information_schema.columns WHERE table_name = '%s' AND table_schema = 'public' ORDER BY ordinal_position;",
 		QSelectRows:          `SELECT %s FROM %s`,
 		QSelectRowsPaginated: `SELECT %s FROM %s LIMIT %d OFFSET %d`,
+		QSelectRowsFiltered:  `SELECT %s FROM %s WHERE %s LIMIT %d OFFSET %d`,
 		QSelectRowByPK:       `SELECT %s FROM %s WHERE %s = %s`,
 		QDelete:              `DELETE FROM %s WHERE %s = %s`,
 		QInsert:              `INSERT INTO %s (%s) VALUES (%s)`,
@@ -82,6 +86,13 @@ func Placeholder(dbType string, index int) string {
 		return fmt.Sprintf("$%d", index)
 	}
 	return "?"
+}
+
+func LikeOperator(dbType string) string {
+	if dbType == POSTGRES {
+		return "ILIKE"
+	}
+	return "LIKE"
 }
 
 func quoteIdent(dbType, name string) string {

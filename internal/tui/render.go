@@ -120,7 +120,16 @@ func (m *Model) statusBar() string {
 	case screenRows:
 		start := m.rowOffset + 1
 		end := m.rowOffset + len(m.rowTable.GetVisibleRows())
-		return fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • Esc: back • q: quit • Rows %d-%d", start, end)
+		if len(m.filters) > 0 {
+			var parts []string
+			for _, col := range m.rowColumns {
+				if val, ok := m.filters[col]; ok {
+					parts = append(parts, fmt.Sprintf("%s LIKE '%%%s%%'", col, val))
+				}
+			}
+			return fmt.Sprintf("Filter: %s • Rows %d-%d • S: search • c: clear", strings.Join(parts, " AND "), start, end)
+		}
+		return fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • S: search • Esc: back • q: quit • Rows %d-%d", start, end)
 	case screenDetail:
 		return "Esc: back • q: quit"
 	case screenUpdate:
@@ -138,6 +147,8 @@ func (m *Model) statusBar() string {
 			return "y: confirm • n/esc: cancel"
 		}
 		return "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
+	case screenSearch:
+		return "Tab: next field • Shift+Tab: prev field • Enter: search • Esc: cancel"
 	}
 	return ""
 }

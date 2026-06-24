@@ -5,6 +5,7 @@ import (
 	"lazydb/internal/db"
 	"lazydb/internal/utils"
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,7 @@ const (
 	screenUpdate
 	screenDelete
 	screenInsert
+	screenSearch
 )
 
 const maxColWidth = 40
@@ -67,6 +69,9 @@ type Model struct {
 	insertMode        bool
 	insertColumns     []string
 	autoIncrementCols []string
+
+	// Search state
+	filters map[string]string
 
 	logger *log.Logger
 }
@@ -371,6 +376,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "b":
 				m.pop()
 				return m, nil
+			case "S":
+				m.pkIdx = -1
+				m.initFormInputs(m.rowColumns, nil, nil)
+				m.push(screenSearch)
+				m.errMsg = ""
+				return m, nil
+			case "c":
+				if len(m.filters) > 0 {
+					m.filters = nil
+					m.fetchRowWindow(0)
+				}
+				return m, nil
 			case "h":
 				m.rowTable = m.rowTable.ScrollLeft()
 				return m, nil
@@ -437,31 +454,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
 					return m, nil
 				}
-				m.updateInputs = make([]textinput.Model, len(m.rowColumns))
 				m.pkIdx = -1
-				firstEditable := -1
 				for i, col := range m.rowColumns {
 					if col == m.primaryKeyCol {
 						m.pkIdx = i
-					}
-					ti := textinput.New()
-					ti.Prompt = col + ": "
-					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-					ti.Width = 50
-					if i < len(row) {
-						ti.SetValue(row[i])
-					}
-					m.updateInputs[i] = ti
-					if firstEditable == -1 && col != m.primaryKeyCol {
-						firstEditable = i
+						break
 					}
 				}
-				if firstEditable >= 0 {
-					m.updateInputs[firstEditable].Focus()
-					m.updateFocused = firstEditable
-				} else {
-					m.updateFocused = 0
-				}
+				m.initFormInputs(m.rowColumns, []string{m.primaryKeyCol}, row)
 				m.confirmUpdate = false
 				m.push(screenUpdate)
 				m.errMsg = ""
@@ -482,30 +482,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "I":
 				var insertCols []string
 				for _, col := range m.rowColumns {
-					isAutoInc := false
-					for _, ac := range m.autoIncrementCols {
-						if ac == col {
-							isAutoInc = true
-							break
-						}
-					}
-					if !isAutoInc {
+					if !slices.Contains(m.autoIncrementCols, col) {
 						insertCols = append(insertCols, col)
 					}
 				}
 				m.insertColumns = insertCols
-				m.updateInputs = make([]textinput.Model, len(insertCols))
-				for i, col := range insertCols {
-					ti := textinput.New()
-					ti.Prompt = col + ": "
-					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-					ti.Width = 50
-					m.updateInputs[i] = ti
-				}
-				if len(m.updateInputs) > 0 {
-					m.updateInputs[0].Focus()
-				}
-				m.updateFocused = 0
+				m.pkIdx = -1
+				m.initFormInputs(insertCols, nil, nil)
 				m.insertMode = true
 				m.confirmUpdate = false
 				m.push(screenInsert)
@@ -560,14 +543,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, m.pkIdx)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(1)
 				return m, nil
 			case "shift+tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, m.pkIdx)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(-1)
 				return m, nil
 			case "enter":
 				m.confirmUpdate = true
@@ -642,14 +621,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, -1)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(1)
 				return m, nil
 			case "shift+tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, -1)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(-1)
 				return m, nil
 			case "enter":
 				allFilled := true
@@ -665,6 +640,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.errMsg = ""
 				m.confirmUpdate = true
+				return m, nil
+			}
+		}
+		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
+		return m, cmd
+
+	case screenSearch:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "esc":
+				m.pop()
+				return m, nil
+			case "tab":
+				m.focusInputs(1)
+				return m, nil
+			case "shift+tab":
+				m.focusInputs(-1)
+				return m, nil
+			case "enter":
+				m.filters = make(map[string]string)
+				for i, ti := range m.updateInputs {
+					val := strings.TrimSpace(ti.Value())
+					if val != "" {
+						m.filters[m.rowColumns[i]] = val
+					}
+				}
+				m.errMsg = ""
+				m.pop()
+				m.fetchRowWindow(0)
 				return m, nil
 			}
 		}
@@ -726,6 +731,12 @@ func (m Model) View() string {
 			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
 		}
 		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
+	case screenSearch:
+		bg := m.rowTable.View()
+		modalContent := buildFormInputs(m.updateInputs, -1, nil)
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: next field • Shift+Tab: prev field • Enter: search`)
+		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
+		content = renderModal("Search Records", modalContent, m.termWidth, m.termHeight, bg)
 	}
 
 	statusText := m.statusBar()

@@ -67,6 +67,18 @@ func TestQuoteIdent(t *testing.T) {
 	}
 }
 
+func TestLikeOperator(t *testing.T) {
+	if got := LikeOperator(SQLITE); got != "LIKE" {
+		t.Fatalf("LikeOperator(SQLITE) = %q, want LIKE", got)
+	}
+	if got := LikeOperator(MYSQL); got != "LIKE" {
+		t.Fatalf("LikeOperator(MYSQL) = %q, want LIKE", got)
+	}
+	if got := LikeOperator(POSTGRES); got != "ILIKE" {
+		t.Fatalf("LikeOperator(POSTGRES) = %q, want ILIKE", got)
+	}
+}
+
 func TestQueryMapHasRequiredKeys(t *testing.T) {
 	required := []string{
 		QConnString,
@@ -81,6 +93,7 @@ func TestQueryMapHasRequiredKeys(t *testing.T) {
 		QInsert,
 		QUpdate,
 		QFetchAutoIncrement,
+		QSelectRowsFiltered,
 	}
 
 	for _, dbType := range SupportedDBs {

@@ -272,6 +272,56 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 	return scanRows(rows, columns)
 }
 
+func (db *Database) GetRowsMultiFiltered(table string, columns []string, filters map[string]string, offset, limit int) ([][]string, error) {
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("no columns provided")
+	}
+
+	var whereClauses []string
+	var args []any
+	placeholderIdx := 1
+	for _, col := range columns {
+		val, ok := filters[col]
+		if !ok || val == "" {
+			continue
+		}
+		whereClauses = append(whereClauses,
+			fmt.Sprintf("%s %s %s", quoteIdent(db.Type, col), LikeOperator(db.Type), Placeholder(db.Type, placeholderIdx)))
+		args = append(args, "%"+val+"%")
+		placeholderIdx++
+	}
+
+	if len(whereClauses) == 0 {
+		return db.GetRowsPaginated(table, columns, offset, limit)
+	}
+
+	template, ok := GetQuery(db.Type, QSelectRowsFiltered)
+	if !ok {
+		return nil, fmt.Errorf("unsupported database type for filtered select: %s", db.Type)
+	}
+
+	quotedCols := make([]string, len(columns))
+	for i, col := range columns {
+		quotedCols[i] = quoteIdent(db.Type, col)
+	}
+
+	query := fmt.Sprintf(template,
+		strings.Join(quotedCols, ", "),
+		quoteIdent(db.Type, table),
+		strings.Join(whereClauses, " AND "),
+		limit,
+		offset,
+	)
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRows(rows, columns)
+}
+
 func (db *Database) GetPrimaryKey(table string) string {
 	query, ok := GetQuery(db.Type, QFetchPrimaryKey)
 	if !ok {
