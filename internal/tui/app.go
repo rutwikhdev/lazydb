@@ -5,6 +5,7 @@ import (
 	"lazydb/internal/db"
 	"lazydb/internal/utils"
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -510,14 +511,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "I":
 				var insertCols []string
 				for _, col := range m.rowColumns {
-					isAutoInc := false
-					for _, ac := range m.autoIncrementCols {
-						if ac == col {
-							isAutoInc = true
-							break
-						}
-					}
-					if !isAutoInc {
+					if !slices.Contains(m.autoIncrementCols, col) {
 						insertCols = append(insertCols, col)
 					}
 				}
@@ -804,12 +798,19 @@ func (m Model) View() string {
 	case screenSearch:
 		bg := m.rowTable.View()
 		var colList strings.Builder
+
 		colList.WriteString("Select column:\n")
+		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+
 		for i, col := range m.rowColumns {
 			if i == m.searchColIdx {
-				colList.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render("  ▸ " + col) + "\n")
+				colList.WriteString("  ▸ ")
+				colList.WriteString(highlightStyle.Render(col))
+				colList.WriteByte('\n')
 			} else {
-				colList.WriteString("    " + col + "\n")
+				colList.WriteString("    ")
+				colList.WriteString(col)
+				colList.WriteByte('\n')
 			}
 		}
 		searchView := m.searchInput.View()
