@@ -3,8 +3,10 @@ package tui
 import (
 	"fmt"
 	"lazydb/internal/db"
+	"slices"
 	"strconv"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	btable "github.com/evertras/bubble-table/table"
@@ -119,8 +121,7 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) error {
 	m.pageSize = pageSize
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
 	m.autoIncrementCols, _ = m.dbConn.GetAutoIncrementColumns(tableName)
-	m.filterCol = ""
-	m.filterVal = ""
+	m.filters = nil
 	m.rowOffset = 0
 	m.rowLimit = 500
 	m.rowHasMore = true
@@ -132,8 +133,8 @@ func (m *Model) openRowTable(tableName string, width, pageSize int) error {
 func (m *Model) fetchRowWindow(offset int) {
 	var rows [][]string
 	var err error
-	if m.filterCol != "" && m.filterVal != "" {
-		rows, err = m.dbConn.GetRowsFiltered(m.rowTableName, m.rowColumns, m.filterCol, m.filterVal, offset, m.rowLimit)
+	if len(m.filters) > 0 {
+		rows, err = m.dbConn.GetRowsMultiFiltered(m.rowTableName, m.rowColumns, m.filters, offset, m.rowLimit)
 	} else {
 		rows, err = m.dbConn.GetRowsPaginated(m.rowTableName, m.rowColumns, offset, m.rowLimit)
 	}
@@ -215,4 +216,35 @@ func rowsToTableData(rows [][]string, columns []string) []btable.Row {
 		bRows[i] = btable.NewRow(data)
 	}
 	return bRows
+}
+
+func (m *Model) initFormInputs(columns, skipCols, values []string) {
+	m.updateInputs = make([]textinput.Model, len(columns))
+	firstFocus := -1
+	for i, col := range columns {
+		ti := textinput.New()
+		ti.Prompt = col + ": "
+		ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+		ti.Width = 50
+		if i < len(values) {
+			ti.SetValue(values[i])
+		}
+		m.updateInputs[i] = ti
+		if firstFocus == -1 && !slices.Contains(skipCols, col) {
+			firstFocus = i
+		}
+	}
+	if firstFocus >= 0 {
+		m.updateInputs[firstFocus].Focus()
+		m.updateFocused = firstFocus
+	} else if len(m.updateInputs) > 0 {
+		m.updateInputs[0].Focus()
+		m.updateFocused = 0
+	}
+}
+
+func (m *Model) focusInputs(direction int) {
+	m.updateInputs[m.updateFocused].Blur()
+	m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, direction, m.pkIdx)
+	m.updateInputs[m.updateFocused].Focus()
 }

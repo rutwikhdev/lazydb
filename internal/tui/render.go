@@ -120,8 +120,14 @@ func (m *Model) statusBar() string {
 	case screenRows:
 		start := m.rowOffset + 1
 		end := m.rowOffset + len(m.rowTable.GetVisibleRows())
-		if m.filterCol != "" || m.filterVal != "" {
-			return fmt.Sprintf("Filter: %s LIKE '%%%s%%' • Rows %d-%d • S: search • c: clear", m.filterCol, m.filterVal, start, end)
+		if len(m.filters) > 0 {
+			var parts []string
+			for _, col := range m.rowColumns {
+				if val, ok := m.filters[col]; ok {
+					parts = append(parts, fmt.Sprintf("%s LIKE '%%%s%%'", col, val))
+				}
+			}
+			return fmt.Sprintf("Filter: %s • Rows %d-%d • S: search • c: clear", strings.Join(parts, " AND "), start, end)
 		}
 		return fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • S: search • Esc: back • q: quit • Rows %d-%d", start, end)
 	case screenDetail:
@@ -142,10 +148,7 @@ func (m *Model) statusBar() string {
 		}
 		return "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
 	case screenSearch:
-		if m.searchFocused == 0 {
-			return "↑↓: select column • Tab: focus value • Esc: cancel"
-		}
-		return "Enter: search • Tab: focus columns • Esc: cancel"
+		return "Tab: next field • Shift+Tab: prev field • Enter: search • Esc: cancel"
 	}
 	return ""
 }

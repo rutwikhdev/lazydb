@@ -272,9 +272,31 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 	return scanRows(rows, columns)
 }
 
-func (db *Database) GetRowsFiltered(table string, columns []string, filterCol, filterVal string, offset, limit int) ([][]string, error) {
+func (db *Database) GetRowsMultiFiltered(table string, columns []string, filters map[string]string, offset, limit int) ([][]string, error) {
 	if len(columns) == 0 {
 		return nil, fmt.Errorf("no columns provided")
+	}
+
+	var whereClauses []string
+	var args []any
+	placeholderIdx := 1
+	for _, col := range columns {
+		val, ok := filters[col]
+		if !ok || val == "" {
+			continue
+		}
+		likeOp := "LIKE"
+		if db.Type == POSTGRES {
+			likeOp = "ILIKE"
+		}
+		whereClauses = append(whereClauses,
+			fmt.Sprintf("%s %s %s", quoteIdent(db.Type, col), likeOp, Placeholder(db.Type, placeholderIdx)))
+		args = append(args, "%"+val+"%")
+		placeholderIdx++
+	}
+
+	if len(whereClauses) == 0 {
+		return db.GetRowsPaginated(table, columns, offset, limit)
 	}
 
 	template, ok := GetQuery(db.Type, QSelectRowsFiltered)
@@ -287,22 +309,15 @@ func (db *Database) GetRowsFiltered(table string, columns []string, filterCol, f
 		quotedCols[i] = quoteIdent(db.Type, col)
 	}
 
-	likeOp := "LIKE"
-	if db.Type == POSTGRES {
-		likeOp = "ILIKE"
-	}
-	whereClause := fmt.Sprintf("%s %s %s", quoteIdent(db.Type, filterCol), likeOp, Placeholder(db.Type, 1))
-	pattern := "%" + filterVal + "%"
-
 	query := fmt.Sprintf(template,
 		strings.Join(quotedCols, ", "),
 		quoteIdent(db.Type, table),
-		whereClause,
+		strings.Join(whereClauses, " AND "),
 		limit,
 		offset,
 	)
 
-	rows, err := db.DB.Query(query, pattern)
+	rows, err := db.DB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

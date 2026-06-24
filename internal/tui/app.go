@@ -71,11 +71,7 @@ type Model struct {
 	autoIncrementCols []string
 
 	// Search state
-	filterCol     string
-	filterVal     string
-	searchColIdx  int
-	searchFocused int
-	searchInput   textinput.Model
+	filters map[string]string
 
 	logger *log.Logger
 }
@@ -103,17 +99,12 @@ func NewModel() *Model {
 	}
 	inputs[0].Focus()
 
-	si := textinput.New()
-	si.Placeholder = "Search value..."
-	si.Width = 50
-
 	m := &Model{
 		stack:        []screen{screenDBType},
 		dbTypeList:   dbTypeTable,
 		sqlitePath:   ti,
 		connInputs:   inputs,
 		focusedInput: 0,
-		searchInput:  si,
 		termWidth:    120,
 		termHeight:   60,
 		pageSize:     dynamicPageSize(60),
@@ -386,17 +377,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "S":
-				m.searchColIdx = 0
-				m.searchInput.SetValue("")
-				m.searchInput.Focus()
-				m.searchFocused = 1
+				m.pkIdx = -1
+				m.initFormInputs(m.rowColumns, nil, nil)
 				m.push(screenSearch)
 				m.errMsg = ""
 				return m, nil
 			case "c":
-				if m.filterCol != "" || m.filterVal != "" {
-					m.filterCol = ""
-					m.filterVal = ""
+				if len(m.filters) > 0 {
+					m.filters = nil
 					m.fetchRowWindow(0)
 				}
 				return m, nil
@@ -466,31 +454,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
 					return m, nil
 				}
-				m.updateInputs = make([]textinput.Model, len(m.rowColumns))
 				m.pkIdx = -1
-				firstEditable := -1
 				for i, col := range m.rowColumns {
 					if col == m.primaryKeyCol {
 						m.pkIdx = i
-					}
-					ti := textinput.New()
-					ti.Prompt = col + ": "
-					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-					ti.Width = 50
-					if i < len(row) {
-						ti.SetValue(row[i])
-					}
-					m.updateInputs[i] = ti
-					if firstEditable == -1 && col != m.primaryKeyCol {
-						firstEditable = i
+						break
 					}
 				}
-				if firstEditable >= 0 {
-					m.updateInputs[firstEditable].Focus()
-					m.updateFocused = firstEditable
-				} else {
-					m.updateFocused = 0
-				}
+				m.initFormInputs(m.rowColumns, []string{m.primaryKeyCol}, row)
 				m.confirmUpdate = false
 				m.push(screenUpdate)
 				m.errMsg = ""
@@ -516,18 +487,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.insertColumns = insertCols
-				m.updateInputs = make([]textinput.Model, len(insertCols))
-				for i, col := range insertCols {
-					ti := textinput.New()
-					ti.Prompt = col + ": "
-					ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-					ti.Width = 50
-					m.updateInputs[i] = ti
-				}
-				if len(m.updateInputs) > 0 {
-					m.updateInputs[0].Focus()
-				}
-				m.updateFocused = 0
+				m.pkIdx = -1
+				m.initFormInputs(insertCols, nil, nil)
 				m.insertMode = true
 				m.confirmUpdate = false
 				m.push(screenInsert)
@@ -582,14 +543,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, m.pkIdx)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(1)
 				return m, nil
 			case "shift+tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, m.pkIdx)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(-1)
 				return m, nil
 			case "enter":
 				m.confirmUpdate = true
@@ -664,14 +621,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, 1, -1)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(1)
 				return m, nil
 			case "shift+tab":
-				m.updateInputs[m.updateFocused].Blur()
-				m.updateFocused = cycleFocus(len(m.updateInputs), m.updateFocused, -1, -1)
-				m.updateInputs[m.updateFocused].Focus()
+				m.focusInputs(-1)
 				return m, nil
 			case "enter":
 				allFilled := true
@@ -701,43 +654,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "tab":
-				m.searchInput.Blur()
-				if m.searchFocused == 1 {
-					m.searchFocused = 0
-				} else {
-					m.searchFocused = 1
-					m.searchInput.Focus()
-				}
+				m.focusInputs(1)
 				return m, nil
-			case "up", "k":
-				if m.searchFocused == 0 {
-					if m.searchColIdx > 0 {
-						m.searchColIdx--
-					}
-				}
-				return m, nil
-			case "down", "j":
-				if m.searchFocused == 0 {
-					if m.searchColIdx < len(m.rowColumns)-1 {
-						m.searchColIdx++
-					}
-				}
+			case "shift+tab":
+				m.focusInputs(-1)
 				return m, nil
 			case "enter":
-				val := m.searchInput.Value()
-				if val == "" {
-					m.errMsg = "Search value cannot be empty"
-					return m, nil
+				m.filters = make(map[string]string)
+				for i, ti := range m.updateInputs {
+					val := strings.TrimSpace(ti.Value())
+					if val != "" {
+						m.filters[m.rowColumns[i]] = val
+					}
 				}
-				m.filterCol = m.rowColumns[m.searchColIdx]
-				m.filterVal = val
 				m.errMsg = ""
 				m.pop()
 				m.fetchRowWindow(0)
 				return m, nil
 			}
 		}
-		m.searchInput, cmd = m.searchInput.Update(msg)
+		m.updateInputs[m.updateFocused], cmd = m.updateInputs[m.updateFocused].Update(msg)
 		return m, cmd
 	}
 
@@ -797,28 +733,8 @@ func (m Model) View() string {
 		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenSearch:
 		bg := m.rowTable.View()
-		var colList strings.Builder
-
-		colList.WriteString("Select column:\n")
-		highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-
-		for i, col := range m.rowColumns {
-			if i == m.searchColIdx {
-				colList.WriteString("  ▸ ")
-				colList.WriteString(highlightStyle.Render(col))
-				colList.WriteByte('\n')
-			} else {
-				colList.WriteString("    ")
-				colList.WriteString(col)
-				colList.WriteByte('\n')
-			}
-		}
-		searchView := m.searchInput.View()
-		if m.searchFocused == 0 {
-			searchView = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.searchInput.View())
-		}
-		modalContent := colList.String() + "\n" + searchView
-		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: switch focus • Enter: search`)
+		modalContent := buildFormInputs(m.updateInputs, -1, nil)
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: next field • Shift+Tab: prev field • Enter: search`)
 		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
 		content = renderModal("Search Records", modalContent, m.termWidth, m.termHeight, bg)
 	}
