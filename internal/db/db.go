@@ -285,12 +285,8 @@ func (db *Database) GetRowsMultiFiltered(table string, columns []string, filters
 		if !ok || val == "" {
 			continue
 		}
-		likeOp := "LIKE"
-		if db.Type == POSTGRES {
-			likeOp = "ILIKE"
-		}
 		whereClauses = append(whereClauses,
-			fmt.Sprintf("%s %s %s", quoteIdent(db.Type, col), likeOp, Placeholder(db.Type, placeholderIdx)))
+			fmt.Sprintf("%s %s %s", quoteIdent(db.Type, col), LikeOperator(db.Type), Placeholder(db.Type, placeholderIdx)))
 		args = append(args, "%"+val+"%")
 		placeholderIdx++
 	}

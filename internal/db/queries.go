@@ -88,6 +88,13 @@ func Placeholder(dbType string, index int) string {
 	return "?"
 }
 
+func LikeOperator(dbType string) string {
+	if dbType == POSTGRES {
+		return "ILIKE"
+	}
+	return "LIKE"
+}
+
 func quoteIdent(dbType, name string) string {
 	q := IdentifierQuote[dbType]
 	return q + name + q
