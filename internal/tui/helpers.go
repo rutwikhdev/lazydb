@@ -19,8 +19,6 @@ func dynamicPageSize(h int) int {
 }
 
 func contentHeight(termHeight int) int {
-	// returns the height available for the main content area
-	// status bar takes up 2 lines (one blank separator line + the status line).
 	return termHeight - 2
 }
 
@@ -32,15 +30,13 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 		WithBaseStyle(lipgloss.NewStyle().BorderForeground(lipgloss.Color("240"))).
 		HeaderStyle(lipgloss.NewStyle().
 			Padding(2).
-			Foreground(lipgloss.Color("13")). // BrightMagenta
+			Foreground(lipgloss.Color("13")).
 			Bold(true)).
 		HighlightStyle(lipgloss.NewStyle().
 			Background(lipgloss.Color("#444")).
 			Foreground(lipgloss.Color("#eee")))
 }
 
-// makeListTable builds a two-column list table (ID + name) used for the
-// database type, database, and table selection screens.
 func makeListTable(title string, items []string, width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
@@ -56,9 +52,6 @@ func makeListTable(title string, items []string, width, pageSize, minHeight int)
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-// fitTable resizes a table to the current terminal dimensions. Scrollable
-// tables cap their total width and scroll horizontally instead of flexing
-// columns to fill it.
 func (m *Model) fitTable(t btable.Model, scrollable bool) btable.Model {
 	if scrollable {
 		t = t.WithMaxTotalWidth(m.termWidth)
@@ -105,7 +98,6 @@ func makeDetailTable(row []string, columns []string, width, pageSize, minHeight 
 			Foreground(lipgloss.Color("#eee")))
 }
 
-// Row table with horizontal scrolling
 func (m *Model) openRowTable(tableName string) error {
 	cols, err := m.dbConn.GetColumns(tableName)
 	if err != nil {
@@ -186,7 +178,6 @@ func computeColumnWidths(columns []string, rows [][]string, termWidth int) []int
 		total += widths[i]
 	}
 
-	// Borders and column dividers take up len(columns)+1 cells.
 	target := termWidth - (len(columns) + 1)
 
 	if total > target {

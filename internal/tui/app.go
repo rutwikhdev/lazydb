@@ -171,7 +171,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.connInputs[i].Blur()
 					}
 					m.connInputs[0].Focus()
-					// Prefill port based on DB type
 					switch m.selectedDBType {
 					case db.MYSQL:
 						m.connInputs[1].SetValue(strconv.Itoa(db.MYSQL_DEFAULT_PORT))
@@ -378,10 +377,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.rowTable.GetHighlightedRowIndex()
 				if idx == 0 {
 					if m.rowOffset == 0 {
-						// At the absolute first record — do nothing
 						return m, nil
 					}
-					// Fetch previous window
 					prevOffset := m.rowOffset - m.rowLimit
 					prevOffset = max(prevOffset, 0)
 					m.fetchRowWindow(prevOffset)
@@ -396,10 +393,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.rowTable.GetHighlightedRowIndex()
 				if idx >= len(visible)-1 {
 					if !m.rowHasMore {
-						// At the absolute last record — do nothing
 						return m, nil
 					}
-					// Fetch next window
 					m.fetchRowWindow(m.rowOffset + m.rowLimit)
 					return m, nil
 				}

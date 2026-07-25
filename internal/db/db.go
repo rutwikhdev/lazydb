@@ -208,7 +208,6 @@ func (db *Database) GetColumns(table string) ([]string, error) {
 	return columns, nil
 }
 
-// quotedColumns returns the columns quoted and joined for use in a SELECT list.
 func (db *Database) quotedColumns(columns []string) string {
 	quoted := make([]string, len(columns))
 	for i, col := range columns {
@@ -217,7 +216,6 @@ func (db *Database) quotedColumns(columns []string) string {
 	return strings.Join(quoted, ", ")
 }
 
-// queryRows runs a select query and scans the results into string rows.
 func (db *Database) queryRows(query string, columns []string, args ...any) ([][]string, error) {
 	rows, err := db.DB.Query(query, args...)
 	if err != nil {

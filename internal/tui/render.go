@@ -193,8 +193,6 @@ func (m *Model) selectedPKValue() (string, bool) {
 	return fmt.Sprintf("%v", pkVal), true
 }
 
-// requirePKValue returns the highlighted row's primary key value, setting an
-// error message when the table has no primary key.
 func (m *Model) requirePKValue() (string, bool) {
 	pkVal, ok := m.selectedPKValue()
 	if !ok && m.primaryKeyCol == "" {
@@ -203,7 +201,6 @@ func (m *Model) requirePKValue() (string, bool) {
 	return pkVal, ok
 }
 
-// selectedName returns the value of the "name" column of the highlighted row.
 func selectedName(t btable.Model) (string, bool) {
 	selected := t.HighlightedRow()
 	if selected.Data == nil {
@@ -216,9 +213,6 @@ func selectedName(t btable.Model) (string, bool) {
 	return fmt.Sprintf("%v", val), true
 }
 
-// renderFormModal renders a form modal (update/insert/search) over the rows
-// screen: the form inputs with a hint, or a confirmation prompt once
-// m.confirmUpdate is set.
 func (m *Model) renderFormModal(title, confirmText, hint string, pkIdx int, columns []string) string {
 	bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
 	var modalContent string

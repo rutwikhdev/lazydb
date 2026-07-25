@@ -15,7 +15,6 @@ func NewLogger() *log.Logger {
 		log.Fatal(err)
 	}
 
-	// Send log output to file
 	logger := log.New(file, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	return logger
