@@ -94,16 +94,18 @@ func overlay(bg, fg string, width, height int) string {
 	return strings.Join(bgLines, "\n")
 }
 
-func emptyStateMsg(msg string, width int) string {
+func emptyStateMsg(msg string, width, height int) string {
 	return lipgloss.NewStyle().
 		Width(width).
-		Align(lipgloss.Center).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center).
+		Foreground(lipgloss.Color("240")).
 		Render(msg)
 }
 
-func tableOrEmpty(t btable.Model, msg string, width int) string {
+func tableOrEmpty(t btable.Model, msg string, width, height int) string {
 	if len(t.GetVisibleRows()) == 0 {
-		return emptyStateMsg(msg, width)
+		return emptyStateMsg(msg, width, height)
 	}
 	return t.View()
 }

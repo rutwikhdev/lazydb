@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestDynamicPageSize(t *testing.T) {
@@ -46,8 +48,27 @@ func TestComputeColumnWidthsExpandsToTerminalWidth(t *testing.T) {
 	if len(widths) != len(columns) {
 		t.Fatalf("got %d widths, want %d", len(widths), len(columns))
 	}
-	if widths[0] <= len(columns[0]) || widths[1] <= len("alice") {
-		t.Fatalf("expected widths to expand for available terminal width, got %v", widths)
+	// Non-last columns keep their natural width (widest content + 1).
+	if widths[0] != len("id")+1 {
+		t.Fatalf("first column width = %d, want natural width %d", widths[0], len("id")+1)
+	}
+	// The last column absorbs the leftover so the table fills the terminal.
+	total := widths[0] + widths[1]
+	want := 80 - (len(columns) + 1)
+	if total != want {
+		t.Fatalf("total column width = %d, want %d", total, want)
+	}
+}
+
+func TestComputeColumnWidthsFillsAfterCapping(t *testing.T) {
+	columns := []string{"id", "data"}
+	rows := [][]string{{"1", strings.Repeat("x", 100)}}
+
+	widths := computeColumnWidths(columns, rows, 60)
+	total := widths[0] + widths[1]
+	want := 60 - (len(columns) + 1)
+	if total != want {
+		t.Fatalf("total column width = %d, want %d", total, want)
 	}
 }
 
@@ -65,7 +86,7 @@ func TestRowsToTableData(t *testing.T) {
 }
 
 func TestMakeDBTypeTableRendersSupportedDBs(t *testing.T) {
-	view := makeDBTypeTable(80, 10).View()
+	view := makeDBTypeTable(80, 10, 20).View()
 	for _, want := range []string{"sqlite", "mysql", "postgres"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected db type table to contain %q, view: %s", want, view)
@@ -74,7 +95,7 @@ func TestMakeDBTypeTableRendersSupportedDBs(t *testing.T) {
 }
 
 func TestMakeTableListTableRendersTables(t *testing.T) {
-	view := makeTableListTable([]string{"users", "orders"}, 80, 10).View()
+	view := makeTableListTable([]string{"users", "orders"}, 80, 10, 20).View()
 	for _, want := range []string{"users", "orders"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected table list to contain %q, view: %s", want, view)
@@ -83,7 +104,7 @@ func TestMakeTableListTableRendersTables(t *testing.T) {
 }
 
 func TestMakeDatabaseTableRendersDatabases(t *testing.T) {
-	view := makeDatabaseTable([]string{"app", "analytics"}, 80, 10).View()
+	view := makeDatabaseTable([]string{"app", "analytics"}, 80, 10, 20).View()
 	for _, want := range []string{"app", "analytics"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected database table to contain %q, view: %s", want, view)
@@ -92,10 +113,17 @@ func TestMakeDatabaseTableRendersDatabases(t *testing.T) {
 }
 
 func TestMakeDetailTableRendersColumnsAndValues(t *testing.T) {
-	view := makeDetailTable([]string{"1", "alice"}, []string{"id", "name"}, 80, 10).View()
+	view := makeDetailTable([]string{"1", "alice"}, []string{"id", "name"}, 80, 10, 20).View()
 	for _, want := range []string{"id", "name", "1", "alice"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected detail table to contain %q, view: %s", want, view)
 		}
+	}
+}
+
+func TestTableFillsMinHeight(t *testing.T) {
+	view := makeTableListTable([]string{"users"}, 80, 10, 20).View()
+	if h := lipgloss.Height(view); h != 20 {
+		t.Fatalf("table height = %d, want minimum height 20", h)
 	}
 }

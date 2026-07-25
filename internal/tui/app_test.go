@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestNewModelInitialState(t *testing.T) {
@@ -128,6 +129,18 @@ func TestViewIncludesStatusBar(t *testing.T) {
 	}
 }
 
+func TestViewAnchorsStatusBarToBottom(t *testing.T) {
+	m := NewModel()
+	if h := lipgloss.Height(m.View()); h != m.termHeight {
+		t.Fatalf("db type view height = %d, want terminal height %d", h, m.termHeight)
+	}
+
+	m.stack = []screen{screenConnectionForm}
+	if h := lipgloss.Height(m.View()); h != m.termHeight {
+		t.Fatalf("connection form view height = %d, want terminal height %d", h, m.termHeight)
+	}
+}
+
 func TestRowsEmptyState(t *testing.T) {
 	m := NewModel()
 	d, err := db.NewDBFromInfo(db.ConnectionInfo{
@@ -165,7 +178,7 @@ func TestRowsEmptyState(t *testing.T) {
 
 func TestTablesEmptyState(t *testing.T) {
 	m := NewModel()
-	m.tableList = makeTableListTable(nil, m.termWidth, m.pageSize)
+	m.tableList = makeTableListTable(nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 	m.push(screenTables)
 	if view := m.View(); !strings.Contains(view, msgEmptyTables) {
 		t.Fatalf("expected empty state %q, got %q", msgEmptyTables, view)
@@ -174,7 +187,7 @@ func TestTablesEmptyState(t *testing.T) {
 
 func TestDatabasesEmptyState(t *testing.T) {
 	m := NewModel()
-	m.dbList = makeDatabaseTable(nil, m.termWidth, m.pageSize)
+	m.dbList = makeDatabaseTable(nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 	m.push(screenDatabases)
 	if view := m.View(); !strings.Contains(view, msgEmptyDatabases) {
 		t.Fatalf("expected empty state %q, got %q", msgEmptyDatabases, view)

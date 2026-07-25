@@ -19,6 +19,12 @@ func dynamicPageSize(h int) int {
 	return h - 8
 }
 
+func contentHeight(termHeight int) int {
+	// returns the height available for the main content area
+	// status bar takes up 2 lines (one blank separator line + the status line).
+	return termHeight - 2
+}
+
 func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 	return btable.New(columns).
 		WithRows(rows).
@@ -31,7 +37,7 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 			Bold(true))
 }
 
-func makeDBTypeTable(width, pageSize int) btable.Model {
+func makeDBTypeTable(width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
 		btable.NewFlexColumn("name", "Database Type", 1),
@@ -43,10 +49,10 @@ func makeDBTypeTable(width, pageSize int) btable.Model {
 			"name": dbType,
 		}))
 	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-func makeTableListTable(tables []string, width, pageSize int) btable.Model {
+func makeTableListTable(tables []string, width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
 		btable.NewFlexColumn("name", "Table Name", 1),
@@ -58,10 +64,10 @@ func makeTableListTable(tables []string, width, pageSize int) btable.Model {
 			"name": name,
 		}))
 	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
+func makeDatabaseTable(databases []string, width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
 		btable.NewFlexColumn("name", "Database Name", 1),
@@ -73,10 +79,10 @@ func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
 			"name": name,
 		}))
 	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-func makeDetailTable(row []string, columns []string, width, pageSize int) btable.Model {
+func makeDetailTable(row []string, columns []string, width, pageSize, minHeight int) btable.Model {
 	colWidth := width / 4
 
 	colCol := btable.NewColumn("column", "Column", colWidth).
@@ -106,7 +112,8 @@ func makeDetailTable(row []string, columns []string, width, pageSize int) btable
 			Bold(true)).
 		WithMultiline(true).
 		WithTargetWidth(width).
-		WithPageSize(pageSize)
+		WithPageSize(pageSize).
+		WithMinimumHeight(minHeight)
 }
 
 // Row table with horizontal scrolling
@@ -163,47 +170,51 @@ func (m *Model) fetchRowWindow(offset int) {
 	m.rowTable = styledTable(columns, bRows).
 		WithPageSize(m.pageSize).
 		WithMaxTotalWidth(m.termWidth).
-		WithHorizontalFreezeColumnCount(1)
+		WithHorizontalFreezeColumnCount(1).
+		WithMinimumHeight(contentHeight(m.termHeight))
 }
 
 func computeColumnWidths(columns []string, rows [][]string, termWidth int) []int {
-	colWidths := make([]int, len(columns))
+	widths := make([]int, len(columns))
+	if len(columns) == 0 {
+		return widths
+	}
+
 	for i, name := range columns {
-		colWidths[i] = ansi.StringWidth(name)
+		widths[i] = ansi.StringWidth(name)
 	}
 	for _, row := range rows {
 		for j, val := range row {
-			if j < len(colWidths) {
-				w := ansi.StringWidth(val)
-				if w > colWidths[j] {
-					colWidths[j] = w
+			if j < len(widths) {
+				if w := ansi.StringWidth(val); w > widths[j] {
+					widths[j] = w
 				}
 			}
 		}
 	}
 
-	finalWidths := make([]int, len(columns))
-	for i := range colWidths {
-		finalWidths[i] = colWidths[i] + 1
+	total := 0
+	for i := range widths {
+		widths[i]++
+		total += widths[i]
 	}
 
-	totalColWidth := 0
-	for _, w := range finalWidths {
-		totalColWidth += w
-	}
+	// Borders and column dividers take up len(columns)+1 cells.
+	target := termWidth - (len(columns) + 1)
 
-	if totalColWidth < termWidth {
-		for i := range finalWidths {
-			proportion := float64(finalWidths[i]) / float64(totalColWidth)
-			finalWidths[i] = int(proportion * float64(termWidth-3))
-		}
-	} else {
-		for i := range finalWidths {
-			finalWidths[i] = min(finalWidths[i], maxColWidth)
+	if total > target {
+		total = 0
+		for i := range widths {
+			widths[i] = min(widths[i], maxColWidth)
+			total += widths[i]
 		}
 	}
 
-	return finalWidths
+	if total < target {
+		widths[len(widths)-1] += target - total
+	}
+
+	return widths
 }
 
 func rowsToTableData(rows [][]string, columns []string) []btable.Row {
