@@ -33,7 +33,10 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 		HeaderStyle(lipgloss.NewStyle().
 			Padding(2).
 			Foreground(lipgloss.Color("13")). // BrightMagenta
-			Bold(true))
+			Bold(true)).
+		HighlightStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("#444")).
+			Foreground(lipgloss.Color("#eee")))
 }
 
 // makeListTable builds a two-column list table (ID + name) used for the
@@ -96,7 +99,10 @@ func makeDetailTable(row []string, columns []string, width, pageSize, minHeight 
 		WithMultiline(true).
 		WithTargetWidth(width).
 		WithPageSize(pageSize).
-		WithMinimumHeight(minHeight)
+		WithMinimumHeight(minHeight).
+		HighlightStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("#444")).
+			Foreground(lipgloss.Color("#eee")))
 }
 
 // Row table with horizontal scrolling
