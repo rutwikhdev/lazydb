@@ -50,7 +50,6 @@ type Model struct {
 	selectedDBType string
 	errMsg         string
 
-	// Pagination state for row viewer
 	rowTableName  string
 	rowOffset     int
 	rowLimit      int
@@ -59,7 +58,6 @@ type Model struct {
 	primaryKeyCol string
 	detailTable   btable.Model
 
-	// Update state
 	updateInputs      []textinput.Model
 	updateFocused     int
 	pkIdx             int
@@ -70,7 +68,6 @@ type Model struct {
 	insertColumns     []string
 	autoIncrementCols []string
 
-	// Search state
 	filters map[string]string
 
 	logger *log.Logger
@@ -695,22 +692,22 @@ func (m Model) View() string {
 		}
 		content = form.String()
 	case screenDatabases:
-		content = m.dbList.View()
+		content = tableOrEmpty(m.dbList, msgEmptyDatabases, m.termWidth)
 	case screenTables:
-		content = m.tableList.View()
+		content = tableOrEmpty(m.tableList, msgEmptyTables, m.termWidth)
 	case screenRows:
-		content = m.rowTable.View()
+		content = tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
 	case screenDetail:
 		content = m.detailTable.View()
 	case screenDelete:
-		bg := m.rowTable.View()
+		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
 		var modalContent string
 		if m.confirmDelete {
 			modalContent = "Confirm delete? (y/n)\n"
 		}
 		content = renderModal("Deleting Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenUpdate:
-		bg := m.rowTable.View()
+		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
 		var modalContent string
 		if m.confirmUpdate {
 			modalContent = "Confirm update? (y/n)\n"
@@ -721,7 +718,7 @@ func (m Model) View() string {
 		}
 		content = renderModal("Updating Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenInsert:
-		bg := m.rowTable.View()
+		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
 		var modalContent string
 		if m.confirmUpdate {
 			modalContent = "Confirm insert? (y/n)\n"
@@ -732,7 +729,7 @@ func (m Model) View() string {
 		}
 		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
 	case screenSearch:
-		bg := m.rowTable.View()
+		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
 		modalContent := buildFormInputs(m.updateInputs, -1, nil)
 		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: next field • Shift+Tab: prev field • Enter: search`)
 		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)

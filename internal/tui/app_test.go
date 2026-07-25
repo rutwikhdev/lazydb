@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"lazydb/internal/db"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -123,5 +125,58 @@ func TestViewIncludesStatusBar(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "Enter: select") {
 		t.Fatalf("expected view to include status bar, got %q", view)
+	}
+}
+
+func TestRowsEmptyState(t *testing.T) {
+	m := NewModel()
+	d, err := db.NewDBFromInfo(db.ConnectionInfo{
+		Type: db.SQLITE,
+		Path: filepath.Join(t.TempDir(), "test.db"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	defer d.DB.Close()
+
+	if _, err := d.DB.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	m.dbConn = d
+	if err := m.openRowTable("items", m.termWidth, m.pageSize); err != nil {
+		t.Fatalf("openRowTable returned error: %v", err)
+	}
+	m.push(screenRows)
+
+	if view := m.View(); !strings.Contains(view, msgEmptyRows) {
+		t.Fatalf("expected empty state %q for empty table, got %q", msgEmptyRows, view)
+	}
+
+	// Regression: after inserting a row the empty state must be replaced by the table.
+	if err := d.InsertRow("items", []string{"name"}, []string{"widget"}); err != nil {
+		t.Fatalf("failed to insert row: %v", err)
+	}
+	m.fetchRowWindow(0)
+	if view := m.View(); strings.Contains(view, msgEmptyRows) {
+		t.Fatalf("expected table view after insert, got %q", view)
+	}
+}
+
+func TestTablesEmptyState(t *testing.T) {
+	m := NewModel()
+	m.tableList = makeTableListTable(nil, m.termWidth, m.pageSize)
+	m.push(screenTables)
+	if view := m.View(); !strings.Contains(view, msgEmptyTables) {
+		t.Fatalf("expected empty state %q, got %q", msgEmptyTables, view)
+	}
+}
+
+func TestDatabasesEmptyState(t *testing.T) {
+	m := NewModel()
+	m.dbList = makeDatabaseTable(nil, m.termWidth, m.pageSize)
+	m.push(screenDatabases)
+	if view := m.View(); !strings.Contains(view, msgEmptyDatabases) {
+		t.Fatalf("expected empty state %q, got %q", msgEmptyDatabases, view)
 	}
 }

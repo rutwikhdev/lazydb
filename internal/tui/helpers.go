@@ -143,7 +143,7 @@ func (m *Model) fetchRowWindow(offset int) {
 		return
 	}
 
-	if len(rows) == 0 {
+	if len(rows) == 0 && offset > 0 {
 		m.rowHasMore = false
 		return
 	}

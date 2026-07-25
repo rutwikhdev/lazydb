@@ -10,6 +10,12 @@ import (
 	btable "github.com/evertras/bubble-table/table"
 )
 
+const (
+	msgEmptyRows      = "No records found"
+	msgEmptyTables    = "No tables found"
+	msgEmptyDatabases = "No databases found"
+)
+
 var normalBorder = btable.Border{
 	Top:            "─",
 	Left:           "│",
@@ -88,6 +94,20 @@ func overlay(bg, fg string, width, height int) string {
 	return strings.Join(bgLines, "\n")
 }
 
+func emptyStateMsg(msg string, width int) string {
+	return lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center).
+		Render(msg)
+}
+
+func tableOrEmpty(t btable.Model, msg string, width int) string {
+	if len(t.GetVisibleRows()) == 0 {
+		return emptyStateMsg(msg, width)
+	}
+	return t.View()
+}
+
 func buildFormInputs(inputs []textinput.Model, pkIdx int, columns []string) string {
 	var sb strings.Builder
 	for i, input := range inputs {
@@ -118,6 +138,12 @@ func (m *Model) statusBar() string {
 	case screenTables:
 		return "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 	case screenRows:
+		if len(m.rowTable.GetVisibleRows()) == 0 {
+			if len(m.filters) > 0 {
+				return "No matching records • S: search • c: clear • Esc: back • q: quit"
+			}
+			return "I: insert • S: search • Esc: back • q: quit"
+		}
 		start := m.rowOffset + 1
 		end := m.rowOffset + len(m.rowTable.GetVisibleRows())
 		if len(m.filters) > 0 {

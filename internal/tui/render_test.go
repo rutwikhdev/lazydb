@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	btable "github.com/evertras/bubble-table/table"
 )
 
 func TestCycleFocusForward(t *testing.T) {
@@ -54,6 +55,23 @@ func TestBuildFormInputs(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected form inputs to contain %q, got %q", want, got)
 		}
+	}
+}
+
+func TestTableOrEmpty(t *testing.T) {
+	cols := []btable.Column{btable.NewColumn("name", "Name", 10)}
+
+	empty := btable.New(cols).WithRows(nil)
+	if got := tableOrEmpty(empty, "nothing here", 40); !strings.Contains(got, "nothing here") {
+		t.Fatalf("expected empty state message, got %q", got)
+	}
+
+	withRows := btable.New(cols).WithRows([]btable.Row{
+		btable.NewRow(btable.RowData{"name": "alice"}),
+	})
+	got := tableOrEmpty(withRows, "nothing here", 40)
+	if strings.Contains(got, "nothing here") || !strings.Contains(got, "alice") {
+		t.Fatalf("expected table view with rows, got %q", got)
 	}
 }
 
