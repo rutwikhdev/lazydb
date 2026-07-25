@@ -94,16 +94,18 @@ func overlay(bg, fg string, width, height int) string {
 	return strings.Join(bgLines, "\n")
 }
 
-func emptyStateMsg(msg string, width int) string {
+func emptyStateMsg(msg string, width, height int) string {
 	return lipgloss.NewStyle().
 		Width(width).
-		Align(lipgloss.Center).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center).
+		Foreground(lipgloss.Color("240")).
 		Render(msg)
 }
 
-func tableOrEmpty(t btable.Model, msg string, width int) string {
+func tableOrEmpty(t btable.Model, msg string, width, height int) string {
 	if len(t.GetVisibleRows()) == 0 {
-		return emptyStateMsg(msg, width)
+		return emptyStateMsg(msg, width, height)
 	}
 	return t.View()
 }
@@ -164,10 +166,7 @@ func (m *Model) statusBar() string {
 		}
 		return "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
 	case screenDelete:
-		if m.confirmDelete {
-			return "y: confirm • n/esc: cancel"
-		}
-		return "Enter: confirm delete • Esc: cancel"
+		return "y: confirm • n/esc: cancel"
 	case screenInsert:
 		if m.confirmUpdate {
 			return "y: confirm • n/esc: cancel"
@@ -192,6 +191,39 @@ func (m *Model) selectedPKValue() (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("%v", pkVal), true
+}
+
+func (m *Model) requirePKValue() (string, bool) {
+	pkVal, ok := m.selectedPKValue()
+	if !ok && m.primaryKeyCol == "" {
+		m.errMsg = "No primary key found for this table"
+	}
+	return pkVal, ok
+}
+
+func selectedName(t btable.Model) (string, bool) {
+	selected := t.HighlightedRow()
+	if selected.Data == nil {
+		return "", false
+	}
+	val, ok := selected.Data["name"]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%v", val), true
+}
+
+func (m *Model) renderFormModal(title, confirmText, hint string, pkIdx int, columns []string) string {
+	bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
+	var modalContent string
+	if m.confirmUpdate {
+		modalContent = confirmText
+	} else {
+		modalContent = buildFormInputs(m.updateInputs, pkIdx, columns)
+		styledHint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(hint)
+		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(styledHint)
+	}
+	return renderModal(title, modalContent, m.termWidth, m.termHeight, bg)
 }
 
 func cycleFocus(count, current, direction, skipIdx int) int {

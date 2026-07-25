@@ -86,7 +86,6 @@ func TestQueryMapHasRequiredKeys(t *testing.T) {
 		QFetchDatabases,
 		QFetchPrimaryKey,
 		QGetColumns,
-		QSelectRows,
 		QSelectRowsPaginated,
 		QSelectRowByPK,
 		QDelete,

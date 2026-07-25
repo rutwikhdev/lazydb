@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"lazydb/internal/db"
 	"slices"
 	"strconv"
 
@@ -19,6 +18,10 @@ func dynamicPageSize(h int) int {
 	return h - 8
 }
 
+func contentHeight(termHeight int) int {
+	return termHeight - 2
+}
+
 func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 	return btable.New(columns).
 		WithRows(rows).
@@ -27,56 +30,38 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 		WithBaseStyle(lipgloss.NewStyle().BorderForeground(lipgloss.Color("240"))).
 		HeaderStyle(lipgloss.NewStyle().
 			Padding(2).
-			Foreground(lipgloss.Color("13")). // BrightMagenta
-			Bold(true))
+			Foreground(lipgloss.Color("13")).
+			Bold(true)).
+		HighlightStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("#444")).
+			Foreground(lipgloss.Color("#eee")))
 }
 
-func makeDBTypeTable(width, pageSize int) btable.Model {
+func makeListTable(title string, items []string, width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Database Type", 1),
+		btable.NewFlexColumn("name", title, 1),
 	}
-	rows := []btable.Row{}
-	for i, dbType := range db.SupportedDBs {
-		rows = append(rows, btable.NewRow(btable.RowData{
-			"id":   strconv.Itoa(i + 1),
-			"name": dbType,
-		}))
-	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
-}
-
-func makeTableListTable(tables []string, width, pageSize int) btable.Model {
-	columns := []btable.Column{
-		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Table Name", 1),
-	}
-	rows := []btable.Row{}
-	for i, name := range tables {
+	rows := make([]btable.Row, 0, len(items))
+	for i, name := range items {
 		rows = append(rows, btable.NewRow(btable.RowData{
 			"id":   strconv.Itoa(i + 1),
 			"name": name,
 		}))
 	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
+	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-func makeDatabaseTable(databases []string, width, pageSize int) btable.Model {
-	columns := []btable.Column{
-		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Database Name", 1),
+func (m *Model) fitTable(t btable.Model, scrollable bool) btable.Model {
+	if scrollable {
+		t = t.WithMaxTotalWidth(m.termWidth)
+	} else {
+		t = t.WithTargetWidth(m.termWidth)
 	}
-	rows := []btable.Row{}
-	for i, name := range databases {
-		rows = append(rows, btable.NewRow(btable.RowData{
-			"id":   strconv.Itoa(i + 1),
-			"name": name,
-		}))
-	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize)
+	return t.WithPageSize(m.pageSize).WithMinimumHeight(contentHeight(m.termHeight))
 }
 
-func makeDetailTable(row []string, columns []string, width, pageSize int) btable.Model {
+func makeDetailTable(row []string, columns []string, width, pageSize, minHeight int) btable.Model {
 	colWidth := width / 4
 
 	colCol := btable.NewColumn("column", "Column", colWidth).
@@ -106,19 +91,20 @@ func makeDetailTable(row []string, columns []string, width, pageSize int) btable
 			Bold(true)).
 		WithMultiline(true).
 		WithTargetWidth(width).
-		WithPageSize(pageSize)
+		WithPageSize(pageSize).
+		WithMinimumHeight(minHeight).
+		HighlightStyle(lipgloss.NewStyle().
+			Background(lipgloss.Color("#444")).
+			Foreground(lipgloss.Color("#eee")))
 }
 
-// Row table with horizontal scrolling
-func (m *Model) openRowTable(tableName string, width, pageSize int) error {
+func (m *Model) openRowTable(tableName string) error {
 	cols, err := m.dbConn.GetColumns(tableName)
 	if err != nil {
 		return err
 	}
 	m.rowTableName = tableName
 	m.rowColumns = cols
-	m.termWidth = width
-	m.pageSize = pageSize
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
 	m.autoIncrementCols, _ = m.dbConn.GetAutoIncrementColumns(tableName)
 	m.filters = nil
@@ -163,47 +149,50 @@ func (m *Model) fetchRowWindow(offset int) {
 	m.rowTable = styledTable(columns, bRows).
 		WithPageSize(m.pageSize).
 		WithMaxTotalWidth(m.termWidth).
-		WithHorizontalFreezeColumnCount(1)
+		WithHorizontalFreezeColumnCount(1).
+		WithMinimumHeight(contentHeight(m.termHeight))
 }
 
 func computeColumnWidths(columns []string, rows [][]string, termWidth int) []int {
-	colWidths := make([]int, len(columns))
+	widths := make([]int, len(columns))
+	if len(columns) == 0 {
+		return widths
+	}
+
 	for i, name := range columns {
-		colWidths[i] = ansi.StringWidth(name)
+		widths[i] = ansi.StringWidth(name)
 	}
 	for _, row := range rows {
 		for j, val := range row {
-			if j < len(colWidths) {
-				w := ansi.StringWidth(val)
-				if w > colWidths[j] {
-					colWidths[j] = w
+			if j < len(widths) {
+				if w := ansi.StringWidth(val); w > widths[j] {
+					widths[j] = w
 				}
 			}
 		}
 	}
 
-	finalWidths := make([]int, len(columns))
-	for i := range colWidths {
-		finalWidths[i] = colWidths[i] + 1
+	total := 0
+	for i := range widths {
+		widths[i]++
+		total += widths[i]
 	}
 
-	totalColWidth := 0
-	for _, w := range finalWidths {
-		totalColWidth += w
-	}
+	target := termWidth - (len(columns) + 1)
 
-	if totalColWidth < termWidth {
-		for i := range finalWidths {
-			proportion := float64(finalWidths[i]) / float64(totalColWidth)
-			finalWidths[i] = int(proportion * float64(termWidth-3))
-		}
-	} else {
-		for i := range finalWidths {
-			finalWidths[i] = min(finalWidths[i], maxColWidth)
+	if total > target {
+		total = 0
+		for i := range widths {
+			widths[i] = min(widths[i], maxColWidth)
+			total += widths[i]
 		}
 	}
 
-	return finalWidths
+	if total < target {
+		widths[len(widths)-1] += target - total
+	}
+
+	return widths
 }
 
 func rowsToTableData(rows [][]string, columns []string) []btable.Row {

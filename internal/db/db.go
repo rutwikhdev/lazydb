@@ -32,16 +32,12 @@ func BuildDSN(info ConnectionInfo) (string, error) {
 	case SQLITE:
 		return info.Path, nil
 	case MYSQL:
-		dbName := info.Database
-		if dbName == "" {
-			dbName = ""
-		}
 		template, ok := GetQuery(MYSQL, QConnString)
 		if !ok {
 			return "", fmt.Errorf("connection string template not found for mysql")
 		}
 		return fmt.Sprintf(template,
-			info.Username, info.Password, info.Host, info.Port, dbName), nil
+			info.Username, info.Password, info.Host, info.Port, info.Database), nil
 	case POSTGRES:
 		dbName := info.Database
 		if dbName == "" {
@@ -212,27 +208,16 @@ func (db *Database) GetColumns(table string) ([]string, error) {
 	return columns, nil
 }
 
-func (db *Database) GetRows(table string, columns []string) ([][]string, error) {
-	if len(columns) == 0 {
-		return nil, fmt.Errorf("no columns provided")
-	}
-
-	template, ok := GetQuery(db.Type, QSelectRows)
-	if !ok {
-		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
-	}
-
-	quotedCols := make([]string, len(columns))
+func (db *Database) quotedColumns(columns []string) string {
+	quoted := make([]string, len(columns))
 	for i, col := range columns {
-		quotedCols[i] = quoteIdent(db.Type, col)
+		quoted[i] = quoteIdent(db.Type, col)
 	}
+	return strings.Join(quoted, ", ")
+}
 
-	query := fmt.Sprintf(template,
-		strings.Join(quotedCols, ", "),
-		quoteIdent(db.Type, table),
-	)
-
-	rows, err := db.DB.Query(query)
+func (db *Database) queryRows(query string, columns []string, args ...any) ([][]string, error) {
+	rows, err := db.DB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -251,25 +236,14 @@ func (db *Database) GetRowsPaginated(table string, columns []string, offset, lim
 		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
 	}
 
-	quotedCols := make([]string, len(columns))
-	for i, col := range columns {
-		quotedCols[i] = quoteIdent(db.Type, col)
-	}
-
 	query := fmt.Sprintf(template,
-		strings.Join(quotedCols, ", "),
+		db.quotedColumns(columns),
 		quoteIdent(db.Type, table),
 		limit,
 		offset,
 	)
 
-	rows, err := db.DB.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return scanRows(rows, columns)
+	return db.queryRows(query, columns)
 }
 
 func (db *Database) GetRowsMultiFiltered(table string, columns []string, filters map[string]string, offset, limit int) ([][]string, error) {
@@ -300,26 +274,15 @@ func (db *Database) GetRowsMultiFiltered(table string, columns []string, filters
 		return nil, fmt.Errorf("unsupported database type for filtered select: %s", db.Type)
 	}
 
-	quotedCols := make([]string, len(columns))
-	for i, col := range columns {
-		quotedCols[i] = quoteIdent(db.Type, col)
-	}
-
 	query := fmt.Sprintf(template,
-		strings.Join(quotedCols, ", "),
+		db.quotedColumns(columns),
 		quoteIdent(db.Type, table),
 		strings.Join(whereClauses, " AND "),
 		limit,
 		offset,
 	)
 
-	rows, err := db.DB.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return scanRows(rows, columns)
+	return db.queryRows(query, columns, args...)
 }
 
 func (db *Database) GetPrimaryKey(table string) string {
@@ -343,25 +306,14 @@ func (db *Database) GetRowByPK(table string, columns []string, pkCol string, pkV
 		return nil, fmt.Errorf("unsupported database type for select: %s", db.Type)
 	}
 
-	quotedCols := make([]string, len(columns))
-	for i, col := range columns {
-		quotedCols[i] = quoteIdent(db.Type, col)
-	}
-
 	query := fmt.Sprintf(template,
-		strings.Join(quotedCols, ", "),
+		db.quotedColumns(columns),
 		quoteIdent(db.Type, table),
 		quoteIdent(db.Type, pkCol),
 		Placeholder(db.Type, 1),
 	)
 
-	rows, err := db.DB.Query(query, pkVal)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result, err := scanRows(rows, columns)
+	result, err := db.queryRows(query, columns, pkVal)
 	if err != nil {
 		return nil, err
 	}

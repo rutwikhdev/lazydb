@@ -62,9 +62,7 @@ type Model struct {
 	updateFocused     int
 	pkIdx             int
 	confirmUpdate     bool
-	confirmDelete     bool
 	updatePKVal       string
-	insertMode        bool
 	insertColumns     []string
 	autoIncrementCols []string
 
@@ -74,7 +72,7 @@ type Model struct {
 }
 
 func NewModel() *Model {
-	dbTypeTable := makeDBTypeTable(120, dynamicPageSize(60))
+	dbTypeTable := makeListTable("Database Type", db.SupportedDBs, 120, dynamicPageSize(60), contentHeight(60))
 
 	ti := textinput.New()
 	ti.Placeholder = "Enter path to SQLite database file"
@@ -138,10 +136,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termHeight = msg.Height
 		m.pageSize = dynamicPageSize(m.termHeight)
 
-		m.dbTypeList = m.dbTypeList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
-		m.dbList = m.dbList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
-		m.tableList = m.tableList.WithTargetWidth(m.termWidth).WithPageSize(m.pageSize)
-		m.rowTable = m.rowTable.WithMaxTotalWidth(m.termWidth).WithPageSize(m.pageSize)
+		m.dbTypeList = m.fitTable(m.dbTypeList, false)
+		m.dbList = m.fitTable(m.dbList, false)
+		m.tableList = m.fitTable(m.tableList, false)
+		m.rowTable = m.fitTable(m.rowTable, true)
+		m.detailTable = m.fitTable(m.detailTable, false)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -157,15 +156,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				return m, tea.Quit
 			case "enter":
-				selected := m.dbTypeList.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-				val, ok := selected.Data["name"]
+				name, ok := selectedName(m.dbTypeList)
 				if !ok {
 					return m, nil
 				}
-				m.selectedDBType = fmt.Sprintf("%v", val)
+				m.selectedDBType = name
 				if m.selectedDBType == db.SQLITE {
 					m.push(screenSQLitePath)
 					m.sqlitePath.Focus()
@@ -176,7 +171,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.connInputs[i].Blur()
 					}
 					m.connInputs[0].Focus()
-					// Prefill port based on DB type
 					switch m.selectedDBType {
 					case db.MYSQL:
 						m.connInputs[1].SetValue(strconv.Itoa(db.MYSQL_DEFAULT_PORT))
@@ -219,7 +213,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+				m.tableList = makeListTable("Table Name", tables, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 				m.push(screenTables)
 				m.errMsg = ""
 				return m, nil
@@ -282,7 +276,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to fetch databases: %v", err)
 					return m, nil
 				}
-				m.dbList = makeDatabaseTable(databases, m.termWidth, m.pageSize)
+				m.dbList = makeListTable("Database Name", databases, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 				m.push(screenDatabases)
 				m.errMsg = ""
 				return m, nil
@@ -301,15 +295,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "enter":
-				selected := m.dbList.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-				val, ok := selected.Data["name"]
+				dbName, ok := selectedName(m.dbList)
 				if !ok {
 					return m, nil
 				}
-				dbName := fmt.Sprintf("%v", val)
 				if err := m.dbConn.SelectDatabase(dbName); err != nil {
 					m.errMsg = fmt.Sprintf("Failed to select database: %v", err)
 					return m, nil
@@ -320,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				m.tableList = makeTableListTable(tables, m.termWidth, m.pageSize)
+				m.tableList = makeListTable("Table Name", tables, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 				m.push(screenTables)
 				m.errMsg = ""
 
@@ -340,19 +329,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pop()
 				return m, nil
 			case "enter":
-				selected := m.tableList.HighlightedRow()
-				if selected.Data == nil {
-					return m, nil
-				}
-
-				val, ok := selected.Data["name"]
+				tableName, ok := selectedName(m.tableList)
 				if !ok {
 					return m, nil
 				}
 
-				tableName := fmt.Sprintf("%v", val)
-				err := m.openRowTable(tableName, m.termWidth, m.pageSize)
-				if err != nil {
+				if err := m.openRowTable(tableName); err != nil {
 					m.errMsg = err.Error()
 					return m, nil
 				}
@@ -395,10 +377,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.rowTable.GetHighlightedRowIndex()
 				if idx == 0 {
 					if m.rowOffset == 0 {
-						// At the absolute first record — do nothing
 						return m, nil
 					}
-					// Fetch previous window
 					prevOffset := m.rowOffset - m.rowLimit
 					prevOffset = max(prevOffset, 0)
 					m.fetchRowWindow(prevOffset)
@@ -413,19 +393,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.rowTable.GetHighlightedRowIndex()
 				if idx >= len(visible)-1 {
 					if !m.rowHasMore {
-						// At the absolute last record — do nothing
 						return m, nil
 					}
-					// Fetch next window
 					m.fetchRowWindow(m.rowOffset + m.rowLimit)
 					return m, nil
 				}
 			case "enter":
-				pkVal, ok := m.selectedPKValue()
+				pkVal, ok := m.requirePKValue()
 				if !ok {
-					if m.primaryKeyCol == "" {
-						m.errMsg = "No primary key found for this table"
-					}
 					return m, nil
 				}
 				row, err := m.dbConn.GetRowByPK(m.rowTableName, m.rowColumns, m.primaryKeyCol, pkVal)
@@ -433,16 +408,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
 					return m, nil
 				}
-				m.detailTable = makeDetailTable(row, m.rowColumns, m.termWidth, m.pageSize)
+				m.detailTable = makeDetailTable(row, m.rowColumns, m.termWidth, m.pageSize, contentHeight(m.termHeight))
 				m.push(screenDetail)
 				m.errMsg = ""
 				return m, nil
 			case "U":
-				pkVal, ok := m.selectedPKValue()
+				pkVal, ok := m.requirePKValue()
 				if !ok {
-					if m.primaryKeyCol == "" {
-						m.errMsg = "No primary key found for this table"
-					}
 					return m, nil
 				}
 				m.updatePKVal = pkVal
@@ -464,15 +436,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errMsg = ""
 				return m, nil
 			case "D":
-				pkVal, ok := m.selectedPKValue()
+				pkVal, ok := m.requirePKValue()
 				if !ok {
-					if m.primaryKeyCol == "" {
-						m.errMsg = "No primary key found for this table"
-					}
 					return m, nil
 				}
 				m.updatePKVal = pkVal
-				m.confirmDelete = true
 				m.push(screenDelete)
 				m.errMsg = ""
 				return m, nil
@@ -486,7 +454,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.insertColumns = insertCols
 				m.pkIdx = -1
 				m.initFormInputs(insertCols, nil, nil)
-				m.insertMode = true
 				m.confirmUpdate = false
 				m.push(screenInsert)
 				m.errMsg = ""
@@ -555,33 +522,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screenDelete:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
-			if m.confirmDelete {
-				switch msg.String() {
-				case "y":
-					m.logger.Println("Deleting row:", m.updatePKVal)
-					err := m.dbConn.DeleteRow(m.rowTableName, m.primaryKeyCol, m.updatePKVal)
-					if err != nil {
-						m.errMsg = fmt.Sprintf("Failed to delete: %v", err)
-					} else {
-						m.errMsg = ""
-						m.fetchRowWindow(m.rowOffset)
-					}
-					m.confirmDelete = false
-					m.pop()
-					return m, nil
-				case "n", "esc":
-					m.confirmDelete = false
-					m.pop()
-					return m, nil
-				}
-				return m, nil
-			}
 			switch msg.String() {
-			case "esc":
+			case "y":
+				m.logger.Println("Deleting row:", m.updatePKVal)
+				err := m.dbConn.DeleteRow(m.rowTableName, m.primaryKeyCol, m.updatePKVal)
+				if err != nil {
+					m.errMsg = fmt.Sprintf("Failed to delete: %v", err)
+				} else {
+					m.errMsg = ""
+					m.fetchRowWindow(m.rowOffset)
+				}
 				m.pop()
 				return m, nil
-			case "enter":
-				m.confirmDelete = true
+			case "n", "esc":
+				m.pop()
 				return m, nil
 			}
 		}
@@ -603,7 +557,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errMsg = ""
 						m.fetchRowWindow(m.rowOffset)
 					}
-					m.insertMode = false
 					m.pop()
 					return m, nil
 				case "n", "esc":
@@ -614,7 +567,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch msg.String() {
 			case "esc":
-				m.insertMode = false
 				m.pop()
 				return m, nil
 			case "tab":
@@ -692,53 +644,32 @@ func (m Model) View() string {
 		}
 		content = form.String()
 	case screenDatabases:
-		content = tableOrEmpty(m.dbList, msgEmptyDatabases, m.termWidth)
+		content = tableOrEmpty(m.dbList, msgEmptyDatabases, m.termWidth, contentHeight(m.termHeight))
 	case screenTables:
-		content = tableOrEmpty(m.tableList, msgEmptyTables, m.termWidth)
+		content = tableOrEmpty(m.tableList, msgEmptyTables, m.termWidth, contentHeight(m.termHeight))
 	case screenRows:
-		content = tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
+		content = tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
 	case screenDetail:
 		content = m.detailTable.View()
 	case screenDelete:
-		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
-		var modalContent string
-		if m.confirmDelete {
-			modalContent = "Confirm delete? (y/n)\n"
-		}
-		content = renderModal("Deleting Record", modalContent, m.termWidth, m.termHeight, bg)
+		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
+		content = renderModal("Deleting Record", "Confirm delete? (y/n)\n", m.termWidth, m.termHeight, bg)
 	case screenUpdate:
-		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
-		var modalContent string
-		if m.confirmUpdate {
-			modalContent = "Confirm update? (y/n)\n"
-		} else {
-			modalContent = buildFormInputs(m.updateInputs, m.pkIdx, m.rowColumns)
-			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Hit "Enter" when done`)
-			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
-		}
-		content = renderModal("Updating Record", modalContent, m.termWidth, m.termHeight, bg)
+		content = m.renderFormModal("Updating Record", "Confirm update? (y/n)\n", `Hit "Enter" when done`, m.pkIdx, m.rowColumns)
 	case screenInsert:
-		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
-		var modalContent string
-		if m.confirmUpdate {
-			modalContent = "Confirm insert? (y/n)\n"
-		} else {
-			modalContent = buildFormInputs(m.updateInputs, -1, nil)
-			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`All fields required. Hit "Enter" when done`)
-			modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
-		}
-		content = renderModal("Inserting Record", modalContent, m.termWidth, m.termHeight, bg)
+		content = m.renderFormModal("Inserting Record", "Confirm insert? (y/n)\n", `All fields required. Hit "Enter" when done`, -1, nil)
 	case screenSearch:
-		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth)
-		modalContent := buildFormInputs(m.updateInputs, -1, nil)
-		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(`Tab: next field • Shift+Tab: prev field • Enter: search`)
-		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(hint)
-		content = renderModal("Search Records", modalContent, m.termWidth, m.termHeight, bg)
+		content = m.renderFormModal("Search Records", "", `Tab: next field • Shift+Tab: prev field • Enter: search`, -1, nil)
 	}
 
 	statusText := m.statusBar()
-	if statusText != "" {
-		return content + "\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(statusText)
+	if statusText == "" {
+		return content
 	}
-	return content
+	status := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(statusText)
+	if gap := contentHeight(m.termHeight) - lipgloss.Height(content); gap > 0 {
+		content += strings.Repeat("\n", gap)
+	}
+
+	return content + "\n\n" + status
 }

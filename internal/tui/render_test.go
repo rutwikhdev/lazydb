@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/lipgloss"
 	btable "github.com/evertras/bubble-table/table"
 )
 
@@ -62,14 +63,18 @@ func TestTableOrEmpty(t *testing.T) {
 	cols := []btable.Column{btable.NewColumn("name", "Name", 10)}
 
 	empty := btable.New(cols).WithRows(nil)
-	if got := tableOrEmpty(empty, "nothing here", 40); !strings.Contains(got, "nothing here") {
+	got := tableOrEmpty(empty, "nothing here", 40, 10)
+	if !strings.Contains(got, "nothing here") {
 		t.Fatalf("expected empty state message, got %q", got)
+	}
+	if h := lipgloss.Height(got); h != 10 {
+		t.Fatalf("empty state height = %d, want 10", h)
 	}
 
 	withRows := btable.New(cols).WithRows([]btable.Row{
 		btable.NewRow(btable.RowData{"name": "alice"}),
 	})
-	got := tableOrEmpty(withRows, "nothing here", 40)
+	got = tableOrEmpty(withRows, "nothing here", 40, 10)
 	if strings.Contains(got, "nothing here") || !strings.Contains(got, "alice") {
 		t.Fatalf("expected table view with rows, got %q", got)
 	}
