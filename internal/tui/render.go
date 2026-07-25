@@ -166,10 +166,7 @@ func (m *Model) statusBar() string {
 		}
 		return "Tab: next field • Shift+Tab: prev field • Enter: save • Esc: cancel"
 	case screenDelete:
-		if m.confirmDelete {
-			return "y: confirm • n/esc: cancel"
-		}
-		return "Enter: confirm delete • Esc: cancel"
+		return "y: confirm • n/esc: cancel"
 	case screenInsert:
 		if m.confirmUpdate {
 			return "y: confirm • n/esc: cancel"
@@ -194,6 +191,45 @@ func (m *Model) selectedPKValue() (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("%v", pkVal), true
+}
+
+// requirePKValue returns the highlighted row's primary key value, setting an
+// error message when the table has no primary key.
+func (m *Model) requirePKValue() (string, bool) {
+	pkVal, ok := m.selectedPKValue()
+	if !ok && m.primaryKeyCol == "" {
+		m.errMsg = "No primary key found for this table"
+	}
+	return pkVal, ok
+}
+
+// selectedName returns the value of the "name" column of the highlighted row.
+func selectedName(t btable.Model) (string, bool) {
+	selected := t.HighlightedRow()
+	if selected.Data == nil {
+		return "", false
+	}
+	val, ok := selected.Data["name"]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%v", val), true
+}
+
+// renderFormModal renders a form modal (update/insert/search) over the rows
+// screen: the form inputs with a hint, or a confirmation prompt once
+// m.confirmUpdate is set.
+func (m *Model) renderFormModal(title, confirmText, hint string, pkIdx int, columns []string) string {
+	bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
+	var modalContent string
+	if m.confirmUpdate {
+		modalContent = confirmText
+	} else {
+		modalContent = buildFormInputs(m.updateInputs, pkIdx, columns)
+		styledHint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(hint)
+		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(styledHint)
+	}
+	return renderModal(title, modalContent, m.termWidth, m.termHeight, bg)
 }
 
 func cycleFocus(count, current, direction, skipIdx int) int {

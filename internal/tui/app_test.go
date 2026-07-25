@@ -157,7 +157,7 @@ func TestRowsEmptyState(t *testing.T) {
 	}
 
 	m.dbConn = d
-	if err := m.openRowTable("items", m.termWidth, m.pageSize); err != nil {
+	if err := m.openRowTable("items"); err != nil {
 		t.Fatalf("openRowTable returned error: %v", err)
 	}
 	m.push(screenRows)
@@ -176,20 +176,39 @@ func TestRowsEmptyState(t *testing.T) {
 	}
 }
 
-func TestTablesEmptyState(t *testing.T) {
-	m := NewModel()
-	m.tableList = makeTableListTable(nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
-	m.push(screenTables)
-	if view := m.View(); !strings.Contains(view, msgEmptyTables) {
-		t.Fatalf("expected empty state %q, got %q", msgEmptyTables, view)
+func TestListEmptyStates(t *testing.T) {
+	tests := []struct {
+		name  string
+		s     screen
+		setup func(m *Model)
+		want  string
+	}{
+		{
+			name: "tables",
+			s:    screenTables,
+			setup: func(m *Model) {
+				m.tableList = makeListTable("Table Name", nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
+			},
+			want: msgEmptyTables,
+		},
+		{
+			name: "databases",
+			s:    screenDatabases,
+			setup: func(m *Model) {
+				m.dbList = makeListTable("Database Name", nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
+			},
+			want: msgEmptyDatabases,
+		},
 	}
-}
 
-func TestDatabasesEmptyState(t *testing.T) {
-	m := NewModel()
-	m.dbList = makeDatabaseTable(nil, m.termWidth, m.pageSize, contentHeight(m.termHeight))
-	m.push(screenDatabases)
-	if view := m.View(); !strings.Contains(view, msgEmptyDatabases) {
-		t.Fatalf("expected empty state %q, got %q", msgEmptyDatabases, view)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			tt.setup(m)
+			m.push(tt.s)
+			if view := m.View(); !strings.Contains(view, tt.want) {
+				t.Fatalf("expected empty state %q, got %q", tt.want, view)
+			}
+		})
 	}
 }

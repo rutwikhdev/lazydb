@@ -85,29 +85,11 @@ func TestRowsToTableData(t *testing.T) {
 	}
 }
 
-func TestMakeDBTypeTableRendersSupportedDBs(t *testing.T) {
-	view := makeDBTypeTable(80, 10, 20).View()
-	for _, want := range []string{"sqlite", "mysql", "postgres"} {
+func TestMakeListTableRendersItems(t *testing.T) {
+	view := makeListTable("Database Type", []string{"sqlite", "mysql"}, 80, 10, 20).View()
+	for _, want := range []string{"Database Type", "sqlite", "mysql"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("expected db type table to contain %q, view: %s", want, view)
-		}
-	}
-}
-
-func TestMakeTableListTableRendersTables(t *testing.T) {
-	view := makeTableListTable([]string{"users", "orders"}, 80, 10, 20).View()
-	for _, want := range []string{"users", "orders"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected table list to contain %q, view: %s", want, view)
-		}
-	}
-}
-
-func TestMakeDatabaseTableRendersDatabases(t *testing.T) {
-	view := makeDatabaseTable([]string{"app", "analytics"}, 80, 10, 20).View()
-	for _, want := range []string{"app", "analytics"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected database table to contain %q, view: %s", want, view)
+			t.Fatalf("expected list table to contain %q, view: %s", want, view)
 		}
 	}
 }
@@ -122,7 +104,7 @@ func TestMakeDetailTableRendersColumnsAndValues(t *testing.T) {
 }
 
 func TestTableFillsMinHeight(t *testing.T) {
-	view := makeTableListTable([]string{"users"}, 80, 10, 20).View()
+	view := makeListTable("Table Name", []string{"users"}, 80, 10, 20).View()
 	if h := lipgloss.Height(view); h != 20 {
 		t.Fatalf("table height = %d, want minimum height 20", h)
 	}

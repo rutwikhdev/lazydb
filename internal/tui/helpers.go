@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"lazydb/internal/db"
 	"slices"
 	"strconv"
 
@@ -37,28 +36,15 @@ func styledTable(columns []btable.Column, rows []btable.Row) btable.Model {
 			Bold(true))
 }
 
-func makeDBTypeTable(width, pageSize, minHeight int) btable.Model {
+// makeListTable builds a two-column list table (ID + name) used for the
+// database type, database, and table selection screens.
+func makeListTable(title string, items []string, width, pageSize, minHeight int) btable.Model {
 	columns := []btable.Column{
 		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Database Type", 1),
+		btable.NewFlexColumn("name", title, 1),
 	}
-	rows := []btable.Row{}
-	for i, dbType := range db.SupportedDBs {
-		rows = append(rows, btable.NewRow(btable.RowData{
-			"id":   strconv.Itoa(i + 1),
-			"name": dbType,
-		}))
-	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
-}
-
-func makeTableListTable(tables []string, width, pageSize, minHeight int) btable.Model {
-	columns := []btable.Column{
-		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Table Name", 1),
-	}
-	rows := []btable.Row{}
-	for i, name := range tables {
+	rows := make([]btable.Row, 0, len(items))
+	for i, name := range items {
 		rows = append(rows, btable.NewRow(btable.RowData{
 			"id":   strconv.Itoa(i + 1),
 			"name": name,
@@ -67,19 +53,16 @@ func makeTableListTable(tables []string, width, pageSize, minHeight int) btable.
 	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
 }
 
-func makeDatabaseTable(databases []string, width, pageSize, minHeight int) btable.Model {
-	columns := []btable.Column{
-		btable.NewColumn("id", "ID", 4),
-		btable.NewFlexColumn("name", "Database Name", 1),
+// fitTable resizes a table to the current terminal dimensions. Scrollable
+// tables cap their total width and scroll horizontally instead of flexing
+// columns to fill it.
+func (m *Model) fitTable(t btable.Model, scrollable bool) btable.Model {
+	if scrollable {
+		t = t.WithMaxTotalWidth(m.termWidth)
+	} else {
+		t = t.WithTargetWidth(m.termWidth)
 	}
-	rows := []btable.Row{}
-	for i, name := range databases {
-		rows = append(rows, btable.NewRow(btable.RowData{
-			"id":   strconv.Itoa(i + 1),
-			"name": name,
-		}))
-	}
-	return styledTable(columns, rows).WithTargetWidth(width).WithPageSize(pageSize).WithMinimumHeight(minHeight)
+	return t.WithPageSize(m.pageSize).WithMinimumHeight(contentHeight(m.termHeight))
 }
 
 func makeDetailTable(row []string, columns []string, width, pageSize, minHeight int) btable.Model {
@@ -117,15 +100,13 @@ func makeDetailTable(row []string, columns []string, width, pageSize, minHeight 
 }
 
 // Row table with horizontal scrolling
-func (m *Model) openRowTable(tableName string, width, pageSize int) error {
+func (m *Model) openRowTable(tableName string) error {
 	cols, err := m.dbConn.GetColumns(tableName)
 	if err != nil {
 		return err
 	}
 	m.rowTableName = tableName
 	m.rowColumns = cols
-	m.termWidth = width
-	m.pageSize = pageSize
 	m.primaryKeyCol = m.dbConn.GetPrimaryKey(tableName)
 	m.autoIncrementCols, _ = m.dbConn.GetAutoIncrementColumns(tableName)
 	m.filters = nil
