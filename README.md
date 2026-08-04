@@ -26,7 +26,7 @@ lazydb
 - [x] Insert record
 - [x] Update record
 - [x] Delete record
-- [ ] Column search
+- [x] Column search
 - [ ] Fuzzy search
 - [ ] Custom fetch queries
 
