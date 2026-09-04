@@ -61,6 +61,33 @@ func (m *Model) fitTable(t btable.Model, scrollable bool) btable.Model {
 	return t.WithPageSize(m.pageSize).WithMinimumHeight(contentHeight(m.termHeight))
 }
 
+type detailLayout struct {
+	modalWidth  int
+	modalHeight int
+	tableWidth  int
+	tableHeight int
+	pageSize    int
+}
+
+func detailLayoutFor(termWidth, termHeight int) detailLayout {
+	modalWidth := max(termWidth*7/10-6, 26)
+	tableHeight := max(min(termHeight-14, 24), 5)
+	return detailLayout{
+		modalWidth:  modalWidth,
+		modalHeight: tableHeight + 2,
+		tableWidth:  max(modalWidth-4, 20),
+		tableHeight: tableHeight,
+		pageSize:    max(tableHeight-4, 1),
+	}
+}
+
+func (m *Model) fitDetailTable(t btable.Model) btable.Model {
+	layout := detailLayoutFor(m.termWidth, m.termHeight)
+	return t.WithTargetWidth(layout.tableWidth).
+		WithPageSize(layout.pageSize).
+		WithMinimumHeight(layout.tableHeight)
+}
+
 func makeDetailTable(row []string, columns []string, width, pageSize, minHeight int) btable.Model {
 	colWidth := width / 4
 

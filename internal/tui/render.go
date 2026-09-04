@@ -33,20 +33,36 @@ var normalBorder = btable.Border{
 	InnerDivider:   "│",
 }
 
-func renderModal(title, content string, termWidth, termHeight int, bg string) string {
+func renderModalWithDimensions(title, content string, termWidth, termHeight int, bg string, width, height int) string {
 	var formContent strings.Builder
 
 	styledTitle := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(title)
-	formContent.WriteString(lipgloss.NewStyle().Width(56).Align(lipgloss.Center).PaddingBottom(1).Render(styledTitle))
+	formContent.WriteString(lipgloss.NewStyle().Width(width - 4).Align(lipgloss.Center).PaddingBottom(1).Render(styledTitle))
 	formContent.WriteString(content)
 
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("13")).
 		Padding(1, 2).
-		Width(60)
+		Width(width)
+	if height > 0 {
+		modalStyle = modalStyle.Height(height)
+	}
 	modal := modalStyle.Render(formContent.String())
-	return overlay(bg, modal, termWidth, termHeight)
+	return overlay(bg, modal, termWidth, max(contentHeight(termHeight), 1))
+}
+
+func renderDetailModal(detailTable btable.Model, termWidth, termHeight int, bg string) string {
+	layout := detailLayoutFor(termWidth, termHeight)
+	return renderModalWithDimensions(
+		"Record Details",
+		detailTable.View(),
+		termWidth,
+		termHeight,
+		bg,
+		layout.modalWidth,
+		layout.modalHeight,
+	)
 }
 
 func overlay(bg, fg string, width, height int) string {
@@ -140,6 +156,9 @@ func (m *Model) statusBar() string {
 	case screenTables:
 		return "↑↓: navigate • Enter: open table • Esc: back • q: quit"
 	case screenRows:
+		if m.detailOpen {
+			return "↑↓/j/k: scroll details • Esc/b: close • q: quit"
+		}
 		if len(m.rowTable.GetVisibleRows()) == 0 {
 			if len(m.filters) > 0 {
 				return "No matching records • S: search • c: clear • Esc: back • q: quit"
@@ -158,8 +177,6 @@ func (m *Model) statusBar() string {
 			return fmt.Sprintf("Filter: %s • Rows %d-%d • S: search • c: clear", strings.Join(parts, " AND "), start, end)
 		}
 		return fmt.Sprintf("↑↓: navigate • h/l or shift+←→: scroll • Enter: view • S: search • Esc: back • q: quit • Rows %d-%d", start, end)
-	case screenDetail:
-		return "Esc: back • q: quit"
 	case screenUpdate:
 		if m.confirmUpdate {
 			return "y: confirm • n/esc: cancel"
@@ -223,7 +240,7 @@ func (m *Model) renderFormModal(title, confirmText, hint string, pkIdx int, colu
 		styledHint := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(hint)
 		modalContent += lipgloss.NewStyle().Width(56).Align(lipgloss.Right).PaddingTop(1).Render(styledHint)
 	}
-	return renderModal(title, modalContent, m.termWidth, m.termHeight, bg)
+	return renderModalWithDimensions(title, modalContent, m.termWidth, m.termHeight, bg, 60, 0)
 }
 
 func cycleFocus(count, current, direction, skipIdx int) int {
