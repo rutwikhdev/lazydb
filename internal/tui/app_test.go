@@ -176,6 +176,60 @@ func TestRowsEmptyState(t *testing.T) {
 	}
 }
 
+func TestDetailOverlayClosesWithoutChangingRowsScreen(t *testing.T) {
+	m := NewModel()
+	m.stack = []screen{screenRows}
+	layout := detailLayoutFor(m.termWidth, m.termHeight)
+	m.detailTable = makeDetailTable([]string{"1", "widget"}, []string{"id", "name"}, layout.tableWidth, layout.pageSize, layout.tableHeight)
+	m.detailOpen = true
+
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("expected no command when closing detail overlay")
+	}
+	updated := model.(Model)
+	if updated.detailOpen {
+		t.Fatalf("expected detail overlay to be closed")
+	}
+	if updated.currentScreen() != screenRows {
+		t.Fatalf("screen after closing detail overlay = %v, want %v", updated.currentScreen(), screenRows)
+	}
+}
+
+func TestDetailOverlayRendersOverRows(t *testing.T) {
+	m := NewModel()
+	m.stack = []screen{screenRows}
+	m.rowTable = makeListTable("Rows", []string{"background"}, m.termWidth, m.pageSize, contentHeight(m.termHeight))
+	layout := detailLayoutFor(m.termWidth, m.termHeight)
+	m.detailTable = makeDetailTable([]string{"1", "widget"}, []string{"id", "name"}, layout.tableWidth, layout.pageSize, layout.tableHeight)
+	m.detailOpen = true
+
+	view := m.View()
+	for _, want := range []string{"Record Details", "id", "widget", "Esc/b: close"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected detail overlay to contain %q, got %q", want, view)
+		}
+	}
+	if h := lipgloss.Height(view); h != m.termHeight {
+		t.Fatalf("detail overlay view height = %d, want terminal height %d", h, m.termHeight)
+	}
+}
+
+func TestDetailOverlayFitsShortTerminal(t *testing.T) {
+	m := NewModel()
+	m.termWidth = 80
+	m.termHeight = 20
+	m.stack = []screen{screenRows}
+	m.rowTable = makeListTable("Rows", []string{"background"}, m.termWidth, m.pageSize, contentHeight(m.termHeight))
+	layout := detailLayoutFor(m.termWidth, m.termHeight)
+	m.detailTable = makeDetailTable([]string{"1", "widget"}, []string{"id", "name"}, layout.tableWidth, layout.pageSize, layout.tableHeight)
+	m.detailOpen = true
+
+	if h := lipgloss.Height(m.View()); h != m.termHeight {
+		t.Fatalf("short-terminal detail view height = %d, want terminal height %d", h, m.termHeight)
+	}
+}
+
 func TestListEmptyStates(t *testing.T) {
 	tests := []struct {
 		name  string
