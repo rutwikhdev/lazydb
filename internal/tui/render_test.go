@@ -35,10 +35,20 @@ func TestOverlayPlacesForeground(t *testing.T) {
 }
 
 func TestRenderModalContainsTitleAndContent(t *testing.T) {
-	got := renderModal("Title", "Body", 80, 20, "background")
+	got := renderModalWithDimensions("Title", "Body", 80, 20, "background", 60, 0)
 	for _, want := range []string{"Title", "Body"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected modal to contain %q, got %q", want, got)
+		}
+	}
+}
+
+func TestRenderDetailModalContainsTableAndTitle(t *testing.T) {
+	detail := makeDetailTable([]string{"1", "alice"}, []string{"id", "name"}, 50, 5, 8)
+	got := renderDetailModal(detail, 80, 20, "background")
+	for _, want := range []string{"Record Details", "id", "alice"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected detail modal to contain %q, got %q", want, got)
 		}
 	}
 }
@@ -99,7 +109,6 @@ func TestStatusBarScreens(t *testing.T) {
 		{name: "sqlite path", s: screenSQLitePath, want: "Enter: connect"},
 		{name: "connection form", s: screenConnectionForm, want: "Tab: next field"},
 		{name: "tables", s: screenTables, want: "Enter: open table"},
-		{name: "detail", s: screenDetail, want: "Esc: back"},
 	}
 
 	for _, tt := range tests {

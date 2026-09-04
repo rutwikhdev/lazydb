@@ -24,7 +24,6 @@ const (
 	screenDatabases
 	screenTables
 	screenRows
-	screenDetail
 	screenUpdate
 	screenDelete
 	screenInsert
@@ -57,6 +56,7 @@ type Model struct {
 	rowHasMore    bool
 	primaryKeyCol string
 	detailTable   btable.Model
+	detailOpen    bool
 
 	updateInputs      []textinput.Model
 	updateFocused     int
@@ -140,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbList = m.fitTable(m.dbList, false)
 		m.tableList = m.fitTable(m.tableList, false)
 		m.rowTable = m.fitTable(m.rowTable, true)
-		m.detailTable = m.fitTable(m.detailTable, false)
+		m.detailTable = m.fitDetailTable(m.detailTable)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -347,6 +347,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case screenRows:
+		if m.detailOpen {
+			detailMsg := msg
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				switch keyMsg.String() {
+				case "q":
+					return m, tea.Quit
+				case "esc", "b":
+					m.detailOpen = false
+					return m, nil
+				case "j":
+					detailMsg = tea.KeyMsg{Type: tea.KeyDown}
+				case "k":
+					detailMsg = tea.KeyMsg{Type: tea.KeyUp}
+				}
+			}
+			m.detailTable, cmd = m.detailTable.Update(detailMsg)
+			return m, cmd
+		}
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
@@ -408,8 +426,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errMsg = fmt.Sprintf("Failed to fetch record: %v", err)
 					return m, nil
 				}
-				m.detailTable = makeDetailTable(row, m.rowColumns, m.termWidth, m.pageSize, contentHeight(m.termHeight))
-				m.push(screenDetail)
+				layout := detailLayoutFor(m.termWidth, m.termHeight)
+				m.detailTable = makeDetailTable(row, m.rowColumns, layout.tableWidth, layout.pageSize, layout.tableHeight)
+				m.detailOpen = true
 				m.errMsg = ""
 				return m, nil
 			case "U":
@@ -461,20 +480,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.rowTable, cmd = m.rowTable.Update(msg)
-		return m, cmd
-
-	case screenDetail:
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "q":
-				return m, tea.Quit
-			case "esc", "b":
-				m.pop()
-				return m, nil
-			}
-		}
-		m.detailTable, cmd = m.detailTable.Update(msg)
 		return m, cmd
 
 	case screenUpdate:
@@ -649,11 +654,12 @@ func (m Model) View() string {
 		content = tableOrEmpty(m.tableList, msgEmptyTables, m.termWidth, contentHeight(m.termHeight))
 	case screenRows:
 		content = tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
-	case screenDetail:
-		content = m.detailTable.View()
+		if m.detailOpen {
+			content = renderDetailModal(m.detailTable, m.termWidth, m.termHeight, content)
+		}
 	case screenDelete:
 		bg := tableOrEmpty(m.rowTable, msgEmptyRows, m.termWidth, contentHeight(m.termHeight))
-		content = renderModal("Deleting Record", "Confirm delete? (y/n)\n", m.termWidth, m.termHeight, bg)
+		content = renderModalWithDimensions("Deleting Record", "Confirm delete? (y/n)\n", m.termWidth, m.termHeight, bg, 60, 0)
 	case screenUpdate:
 		content = m.renderFormModal("Updating Record", "Confirm update? (y/n)\n", `Hit "Enter" when done`, m.pkIdx, m.rowColumns)
 	case screenInsert:
